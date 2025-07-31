@@ -1,0 +1,25 @@
+version: '3.8'
+
+
+services:
+
+  web:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./api:/app
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+
+  bot:
+    build:
+      context: .
+      dockerfile: bot/Dockerfile
+    volumes:
+      - ./bot:/app
+    env_file:
+      - .env

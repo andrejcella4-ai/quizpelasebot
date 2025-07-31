@@ -1,0 +1,51 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+venv/
+env/
+.env
+.venv/
+
+# IDE files
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# Logs
+logs/
+*.log
+
+# Local configuration
+config.ini
+.env.local
+.env.development
+.env.production
+
+# Bot specific
+token.txt
+bot_token.py
+config.py
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Media files
+downloads/
+uploads/
+media/
+
+# Temporary files
+.tmp/
+temp/
+*.tmp
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
