@@ -35,14 +35,14 @@ class AuthPlayerView(APIView):
         return Response({'token': token.key})
 
 
-class QuizSingleView(APIView):
+class QuizView(APIView):
     permission_classes = [permissions.AllowAny]
 
-    def get(self, request):
+    def get(self, request, quiz_type):
         quiz_id = request.query_params.get('quiz_id')
 
         if not quiz_id:
-            quiz = Quiz.objects.filter(quiz_type=Quiz.QuizTypeChoices.SINGLE).first()
+            quiz = Quiz.objects.filter(quiz_type=quiz_type).first()
         else:
             quiz = Quiz.objects.filter(id=quiz_id).first()
 

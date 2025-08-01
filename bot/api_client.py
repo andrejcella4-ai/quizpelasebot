@@ -28,16 +28,17 @@ async def auth_player(
             return data['token']
 
 
-async def get_quiz_info() -> dict:
+async def get_quiz_info(quiz_type: str) -> dict:
     async with aiohttp.ClientSession() as session:
-        async with session.get(f'{BASE_URL}/quiz/game/single/') as resp:
+        async with session.get(f'{BASE_URL}/quiz/game/{quiz_type}/') as resp:
             resp.raise_for_status()
             return await resp.json()
 
 
-async def get_questions(token: str, quiz_id: int) -> list:
+async def get_questions(token: str, quiz_id: int) -> dict:
     headers = {'Authorization': f'Token {token}'}
     async with aiohttp.ClientSession(headers=headers) as session:
         async with session.get(f'{BASE_URL}/question/list/', params={'quiz_id': quiz_id}) as resp:
             resp.raise_for_status()
-            return await resp.json()
+            data = await resp.json()
+            return {"questions": data}

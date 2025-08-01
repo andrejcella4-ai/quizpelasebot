@@ -16,7 +16,7 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path
-from main.views import AuthPlayerView, QuizSingleView, QuestionListView
+from main.views import AuthPlayerView, QuizView, QuestionListView
 from django.conf import settings
 from django.conf.urls.static import static
 
@@ -24,7 +24,7 @@ from django.conf.urls.static import static
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('auth/player/', AuthPlayerView.as_view(), name='auth-player'),
-    path('quiz/game/single/', QuizSingleView.as_view(), name='quiz-single'),
+    path('quiz/game/<str:quiz_type>/', QuizView.as_view(), name='quiz-single'),
     path('question/list/', QuestionListView.as_view(), name='question-list'),
 ]
 

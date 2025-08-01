@@ -71,8 +71,8 @@ class Quiz(models.Model):
 
     class QuizTypeChoices(models.TextChoices):
         TEAM = 'team', 'TM'
-        SINGLE = 'single', 'SN'
-        DM = 'death match', 'DM'
+        SINGLE = 'solo', 'SL'
+        DM = 'dm', 'DM'
 
     name = models.CharField(max_length=255, verbose_name='Название викторины')
     description = models.TextField(blank=True, null=True, verbose_name='Описание')

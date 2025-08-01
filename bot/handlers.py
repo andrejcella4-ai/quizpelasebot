@@ -4,15 +4,13 @@ from aiogram import Router, types
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 
-from fsm import SoloGameStates
+from states.fsm import SoloGameStates
 from api_client import auth_player, get_quiz_info, get_questions
 from keyboards import main_menu_keyboard, confirm_start_keyboard, create_variant_keyboard
 from static.answer_texts import TextStatics
 from helpers import schedule_question_timeout, fetch_question_and_cancel
 from helpers import is_captain, get_team_of_player
 from static.choices import QuestionTypeChoices
-
-import ws_manager
 
 
 router = Router()
@@ -60,7 +58,7 @@ async def callback_solo(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
     if await state.get_state():
-        await callback.message.answer(TextStatics.game_started_answer())
+        await callback.answer("Игра уже идет! Сначала завершите предыдущую игру командой /end_game", show_alert=True)
         return
 
     # Authenticate player and fetch quiz data
@@ -73,12 +71,12 @@ async def callback_solo(callback: types.CallbackQuery, state: FSMContext):
     )
 
     await state.update_data(token=token)
-    quiz_info = await get_quiz_info()
+    quiz_info = await get_quiz_info('solo')
 
     await state.update_data(quiz_info=quiz_info)
-    questions = await get_questions(token, quiz_info['id'])
+    questions_data = await get_questions(token, quiz_info['id'])
 
-    await state.update_data(questions=questions, current_index=0, correct=0, incorrect=0)
+    await state.update_data(questions=questions_data["questions"], current_index=0, correct=0, incorrect=0)
 
     start_text = TextStatics.get_solo_start_text(
         quiz_info['name'], quiz_info['amount_questions']
