@@ -624,7 +624,10 @@ async def answer_text_message(message: types.Message):
     raw_text = (message.text or "").strip()
     if raw_text.startswith("/otvet") or raw_text.startswith("/answer"):
         parts = raw_text.split(" ", maxsplit=1)
-        user_answer = parts[1].strip() if len(parts) > 1 else ""
+        if len(parts) <= 1 or not parts[1].strip():
+            await message.answer(TextStatics.need_answer_text_after_command())
+            return
+        user_answer = parts[1].strip()
     else:
         user_answer = raw_text
 

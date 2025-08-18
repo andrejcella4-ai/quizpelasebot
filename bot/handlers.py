@@ -412,7 +412,11 @@ async def text_answer(message: types.Message, state: FSMContext):
     if message.reply_to_message:
         user_answer = message.text.strip()
     else:
-        user_answer = message.text.strip().split(' ', maxsplit=1)[1]
+        parts = message.text.strip().split(' ', maxsplit=1)
+        if len(parts) <= 1 or not parts[1].strip():
+            await message.answer(TextStatics.need_answer_text_after_command())
+            return
+        user_answer = parts[1].strip()
 
     if q['question_type'] == QuestionTypeChoices.TEXT:
         # реализуем механику 2 попыток
