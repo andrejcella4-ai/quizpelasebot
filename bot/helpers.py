@@ -1,4 +1,6 @@
 from __future__ import annotations
+import os
+import traceback
 
 import asyncio
 from datetime import datetime
@@ -10,19 +12,21 @@ from states.fsm import SoloGameStates
 from states.local_state import GameState, get_game_state, _get_game_key_for_chat, _games_state
 from static.answer_texts import TextStatics
 from static.choices import QuestionTypeChoices
-from keyboards import create_variant_keyboard
+from keyboards import create_variant_keyboard, question_result_keyboard
+from api_client import players_game_end_bulk, team_game_end
+
 
 
 async def start_game_questions(callback: types.CallbackQuery, game_state: GameState):
     """Начать игру - показать первый вопрос."""
     if not game_state.questions:
-        await show_final_results(callback.message.bot, callback.message.chat.id, game_state)
+        await finalize_game(callback.message.bot, callback.message.chat.id, game_state)
         return
     
     # Проверяем, что есть участники
     if game_state.mode == "dm":
         if not game_state.players:
-            await callback.message.bot.send_message(callback.message.chat.id, "Игра не может начаться без участников!")
+            await callback.message.bot.send_message(callback.message.chat.id, TextStatics.no_players_cannot_start())
             # Очищаем состояние
             game_key = _get_game_key_for_chat(callback.message.chat.id)
             if game_key and game_key in _games_state:
@@ -30,7 +34,7 @@ async def start_game_questions(callback: types.CallbackQuery, game_state: GameSt
             return
     else:
         if not game_state.teams:
-            await callback.message.bot.send_message(callback.message.chat.id, "Игра не может начаться без команд!")
+            await callback.message.bot.send_message(callback.message.chat.id, TextStatics.no_teams_cannot_start())
             # Очищаем состояние
             game_key = _get_game_key_for_chat(callback.message.chat.id)
             if game_key and game_key in _games_state:
@@ -52,7 +56,7 @@ async def send_next_question(bot, chat_id: int, game_state: GameState):
     """Отправить следующий вопрос."""
     if game_state.current_q_idx >= len(game_state.questions):
         # Игра окончена
-        await show_final_results(bot, chat_id, game_state)
+        await finalize_game(bot, chat_id, game_state)
         return
     
     question = game_state.questions[game_state.current_q_idx]
@@ -61,11 +65,25 @@ async def send_next_question(bot, chat_id: int, game_state: GameState):
     game_state.answers_right.clear()
     game_state.answers_wrong.clear()
     
-    text = TextStatics.format_question_text(
-        game_state.current_q_idx + 1,
-        question["text"],
-        question.get("time_to_answer", 10),
-    )
+    # Формируем текст вопроса. Для командных открытых вопросов добавляем подсказку про команды и 2 попытки
+    if game_state.mode == "team" and question["question_type"] == QuestionTypeChoices.TEXT:
+        # Берем капитана (одного, исходя из текущей модели одной команды на чат)
+        try:
+            captain_username = list(game_state.captains.values())[0]
+        except Exception:
+            captain_username = None
+        mention = f"@{captain_username}" if captain_username and not captain_username.startswith("@") else (captain_username or "")
+        text = TextStatics.team_quiz_question_template(
+            mention,
+            question["text"],
+            question.get("time_to_answer", 120),
+        )
+    else:
+        text = TextStatics.format_question_text(
+            game_state.current_q_idx + 1,
+            question["text"],
+            question.get("time_to_answer", 120),
+        )
 
     if question["question_type"] == QuestionTypeChoices.VARIANT:
         # Собираем все варианты ответов
@@ -73,78 +91,216 @@ async def send_next_question(bot, chat_id: int, game_state: GameState):
         import random
         random.shuffle(options)
         kb = create_variant_keyboard(options)
+        # Сохраняем порядок вариантов для корректной интерпретации индекса
+        game_state.current_options = options
     else:
         kb = None
 
+    # Увеличим токен вопроса и сбросим флаги
+    game_state.question_token += 1
+    token = game_state.question_token
+    game_state.question_result_sent = False
+    # Сохраним снимок правильного ответа/идентификатора
+    try:
+        game_state.current_correct_answer = question.get("correct_answer")
+    except Exception:
+        game_state.current_correct_answer = None
+
+    # Удаляем предыдущее сообщение с вопросом и гасим предыдущий таймер
+    if game_state.timer_task:
+        try:
+            game_state.timer_task.cancel()
+        except Exception:
+            pass
+        game_state.timer_task = None
+    if game_state.current_question_msg_id:
+        try:
+            await bot.delete_message(chat_id, game_state.current_question_msg_id)
+        except Exception:
+            pass
+
     sent_msg = await bot.send_message(chat_id, text, reply_markup=kb)
     game_state.current_question_msg_id = sent_msg.message_id
+    game_state.waiting_next = False
+    game_state.attempts_left_by_user.clear()
+    # Сбрасываем списки ответов для следующего вопроса
+    game_state.answers_right.clear()
+    game_state.answers_wrong.clear()
     
     # Запускаем таймер на вопрос
     async def on_timeout():
         try:
-            # Отменяем таймер
-            game_state.timer_task = None
-            
-            # Показываем что время вышло и правильный ответ
-            current_question = game_state.questions[game_state.current_q_idx]
-            result_text = f"⏰ Время вышло!\n📊 Правильный ответ: {current_question['correct_answer']}"
-            
-            await bot.send_message(chat_id, result_text)
-            await move_to_next_question(bot, chat_id, game_state)
+            # Атомарная секция: проверяем актуальность и помечаем результат выведенным
+            if game_state.transition_lock is None:
+                game_state.transition_lock = asyncio.Lock()
+            should_send_dm = False
+            should_advance_team = False
+            if token != game_state.question_token or game_state.is_finishing or game_state.status != "playing":
+                return
+            async with game_state.transition_lock:
+                if token != game_state.question_token or game_state.is_finishing or game_state.status != "playing":
+                    return
+                if game_state.question_result_sent:
+                    return
+                # Отменяем таймер
+                if game_state.timer_task:
+                    try:
+                        game_state.timer_task.cancel()
+                    except Exception:
+                        pass
+                    game_state.timer_task = None
+                game_state.question_result_sent = True
+                if game_state.mode == "team":
+                    should_advance_team = True
+                else:
+                    game_state.waiting_next = True
+                    should_send_dm = True
+
+            if game_state.mode == "team":
+                # Команда: короткое сообщение и переход дальше
+                try:
+                    correct = game_state.current_correct_answer
+                    await bot.send_message(
+                        chat_id,
+                        "⌛️ Время вышло!\n\n" + TextStatics.show_right_answer_only(correct)
+                    )
+                except Exception:
+                    pass
+                if should_advance_team:
+                    await move_to_next_question(bot, chat_id, game_state)
+                return
+
+            if should_send_dm:
+                right_list = sorted(list(game_state.answers_right))
+                wrong_list = sorted(list(game_state.answers_wrong))
+                not_answered_list = [p for p in sorted(list(game_state.players)) if p not in game_state.answers_right and p not in game_state.answers_wrong]
+                result_text = TextStatics.dm_quiz_question_result_message(
+                    right_answer=game_state.current_correct_answer,
+                    not_answered=not_answered_list,
+                    wrong_answers=wrong_list,
+                    right_answers=right_list,
+                )
+                await bot.send_message(chat_id, result_text, reply_markup=question_result_keyboard(include_finish=False))
         except Exception as e:
             print(f"Ошибка в on_timeout: {e}")
-            import traceback
             traceback.print_exc()
     
-    timeout_seconds = question.get("time_to_answer", 10)
+    timeout_seconds = question.get("time_to_answer", 120)
     game_state.timer_task = await schedule_question_timeout(
-        timeout_seconds, on_timeout
+        timeout_seconds, on_timeout, bot, chat_id, game_state=game_state, token=token
     )
 
 
 async def move_to_next_question(bot, chat_id: int, game_state: GameState):
     """Перейти к следующему вопросу или завершить игру."""
+    # Если финализация началась, не двигаем вопросы
+    if game_state.is_finishing or game_state.status != "playing":
+        return
+    # Инвалидация токена, чтобы старые таймеры точно не сработали на старом вопросе
+    try:
+        game_state.question_token += 1
+    except Exception:
+        pass
     game_state.current_q_idx += 1
     
     # Небольшая пауза перед следующим вопросом
-    await asyncio.sleep(2)
+    await asyncio.sleep(1)
     
     if game_state.current_q_idx >= len(game_state.questions):
         # Игра завершена
-        await show_final_results(bot, chat_id, game_state)
+        await finalize_game(bot, chat_id, game_state)
     else:
         # Показываем следующий вопрос
         await send_next_question(bot, chat_id, game_state)
 
 
 async def show_final_results(bot, chat_id: int, game_state: GameState):
-    """Показать финальные результаты игры и завершить её."""
-    if not game_state.scores:
-        text = "Игра окончена! Никто не участвовал."
+    """Сформировать текст финальных результатов без очистки состояния."""
+    if game_state.mode == "team":
+        # Командный режим – особый формат
+        if not game_state.scores:
+            text = TextStatics.team_quiz_finished_no_scores()
+        else:
+            team_name, score = next(iter(game_state.scores.items()))
+            text = TextStatics.team_quiz_finished_with_scores(team_name, score)
     else:
-        # Сортируем по очкам
-        sorted_scores = sorted(game_state.scores.items(), key=lambda x: x[1], reverse=True)
-        lines = [f"{idx + 1}. {name} — {score}" for idx, (name, score) in enumerate(sorted_scores)]
-        text = "🏆 Игра окончена!\n\n" + "\n".join(lines)
-    
-    await bot.send_message(chat_id, text)
-    
-    # Автоматически очищаем состояние после показа результатов
-    game_key = _get_game_key_for_chat(chat_id)
-    if game_key and game_key in _games_state:
-        # Отменяем таймеры если есть
+        # DM: отправляем результаты на backend (без вывода стриков в тексте)
+        if not game_state.scores:
+            text = TextStatics.no_participants_game_finished()
+        else:
+            sorted_scores = sorted(game_state.scores.items(), key=lambda x: x[1], reverse=True)
+            text = TextStatics.dm_quiz_finished_full(sorted_scores, registered_count=len(game_state.players))
+    return text
+
+
+async def finalize_game(bot, chat_id: int, game_state: GameState):
+    """Единая финализация игры: отмена таймеров, отправка на бэкенд, один финальный месседж, очистка состояния."""
+    # Не допускаем повторной финализации
+    if game_state.finished_sent or game_state.is_finishing:
+        return
+    game_state.is_finishing = True
+    try:
+        # Отменить активный таймер
         if game_state.timer_task:
-            game_state.timer_task.cancel()
-        del _games_state[game_key]
+            try:
+                game_state.timer_task.cancel()
+            except Exception:
+                pass
+            game_state.timer_task = None
+
+        # Отправка результатов на backend
+        if game_state.mode == "team":
+            try:
+                system_token = os.getenv('BOT_SYSTEM_TOKEN') or os.getenv('BOT_TOKEN', '')
+                team_points = 0
+                if game_state.scores:
+                    team_points = list(game_state.scores.values())[0]
+                if game_state.team_id is not None and team_points >= 0:
+                    await team_game_end(game_state.team_id, team_points, system_token)
+            except Exception:
+                pass
+        else:
+            try:
+                if game_state.scores:
+                    system_token = os.getenv('BOT_SYSTEM_TOKEN') or os.getenv('BOT_TOKEN', '')
+                    results = [
+                        {'username': username, 'points': int(score) * 10}
+                        for username, score in game_state.scores.items()
+                    ]
+                    await players_game_end_bulk(results, system_token)
+            except Exception:
+                pass
+
+        # Сформировать текст и отправить ровно один раз
+        if game_state.finished_sent:
+            return
+        final_text = await show_final_results(bot, chat_id, game_state)
+        game_state.finished_sent = True
+        await bot.send_message(chat_id, final_text)
+    finally:
+        # Очистить состояние
+        game_key = _get_game_key_for_chat(chat_id)
+        if game_key and game_key in _games_state:
+            try:
+                del _games_state[game_key]
+            except Exception:
+                pass
+        game_state.status = 'finished'
 
 
 async def process_answer(bot, chat_id: int, game_state: GameState, username: str, answer: str, callback: types.CallbackQuery | None = None):
     """Обработать ответ игрока."""
-    if game_state.current_q_idx >= len(game_state.questions):
+    if game_state.is_finishing or game_state.status != "playing":
+        if callback:
+            await callback.answer()
         return
-    
+    if game_state.current_q_idx >= len(game_state.questions):
+        if callback:
+            await callback.answer()
+        return
+
     current_question = game_state.questions[game_state.current_q_idx]
-    
+
     # Проверяем правильность ответа
     is_correct = False
     if current_question["question_type"] == QuestionTypeChoices.VARIANT:
@@ -154,34 +310,81 @@ async def process_answer(bot, chat_id: int, game_state: GameState, username: str
         # Для текстовых вопросов сравниваем с правильным ответом
         correct_answer = current_question["correct_answer"].lower().strip()
         is_correct = answer.lower().strip() == correct_answer
-    
-    # Обновляем статистику
+
+    # Инициализируем попытки для пользователя/капитана (для TEXT вопросов)
+    if current_question["question_type"] == QuestionTypeChoices.TEXT and username not in game_state.attempts_left_by_user:
+        game_state.attempts_left_by_user[username] = 2
+
+    # Обновляем статистику и очки
     if is_correct:
         game_state.answers_right.add(username)
-        
-        # Начисляем очки
-        if game_state.mode == "dm":
-            game_state.scores[username] = game_state.scores.get(username, 0) + 1
+        # Подсчет очков с учетом попыток для TEXT
+        if current_question["question_type"] == QuestionTypeChoices.TEXT:
+            attempts_left = game_state.attempts_left_by_user.get(username, 2)
+            gain = 2 if attempts_left == 2 else 1
         else:
-            # Находим команду игрока
-            for team, members in game_state.teams.items():
-                if username in members:
-                    game_state.scores[team] = game_state.scores.get(team, 0) + 1
-                    break
+            gain = 1
+
+        if game_state.mode == "dm":
+            # В DM считаем количество правильных ответов (по 10 XP каждый в отображении)
+            game_state.scores[username] = game_state.scores.get(username, 0) + 1
+        elif game_state.mode == "team":
+            for team, _ in game_state.teams.items():
+                game_state.scores[team] = game_state.scores.get(team, 0) + gain
+                break
+
+        # Ответ правильный
+        if game_state.mode == "team":
+            # В командном режиме: сразу показываем правильный ответ и переходим к следующему вопросу
+            try:
+                if game_state.timer_task:
+                    game_state.timer_task.cancel()
+                    game_state.timer_task = None
+            except Exception:
+                pass
+            await bot.send_message(chat_id, TextStatics.show_right_answer_only(current_question["correct_answer"]))
+            await move_to_next_question(bot, chat_id, game_state)
+            return
+        else:
+            # DM режим — просто ответим на клик
+            if callback:
+                await callback.answer(TextStatics.correct_inline_hint())
     else:
-        game_state.answers_wrong.add(username)
-    
-    # Показываем индивидуальный результат игроку
-    if callback:
-        result_text = f"{'✅ Правильно!' if is_correct else '❌ Неправильно!'}"
-        await callback.answer(result_text, show_alert=True)
-    
-    # Проверяем, ответили ли все игроки
+        # Неправильный ответ
+        if current_question["question_type"] == QuestionTypeChoices.TEXT:
+            game_state.attempts_left_by_user[username] = game_state.attempts_left_by_user.get(username, 2) - 1
+            attempts_left = game_state.attempts_left_by_user[username]
+
+            # Сообщаем пользователю об оставшихся попытках
+            wrong_text = TextStatics.team_quiz_question_wrong_answer(attempts_left, current_question["correct_answer"]) if game_state.mode == "team" else TextStatics.dm_text_wrong_attempt(attempts_left, current_question["correct_answer"])
+            await bot.send_message(chat_id, wrong_text)
+
+            # Если попыток больше нет
+            if attempts_left <= 0:
+                # Отмечаем пользователя как ответившего неправильно окончательно
+                game_state.answers_wrong.add(username)
+                if game_state.mode == "team":
+                    # В командном режиме — сразу к следующему вопросу
+                    if game_state.timer_task:
+                        game_state.timer_task.cancel()
+                        game_state.timer_task = None
+                    await move_to_next_question(bot, chat_id, game_state)
+                    return
+                # В DM режиме — ждём остальных через общий механизм
+        else:
+            # Для вариантов — сразу отмечаем как неправильный
+            game_state.answers_wrong.add(username)
+            if callback:
+                await callback.answer(TextStatics.incorrect_inline_hint())
+
+    # Проверяем, ответили ли все (для dm ждём всех, для team — капитанов)
     await check_if_all_answered(bot, chat_id, game_state)
 
 
 async def check_if_all_answered(bot, chat_id: int, game_state: GameState):
     """Проверить, ответили ли все игроки на текущий вопрос."""
+    if game_state.is_finishing or game_state.status != "playing":
+        return
     total_answered = len(game_state.answers_right) + len(game_state.answers_wrong)
     
     if game_state.mode == "dm":
@@ -192,27 +395,92 @@ async def check_if_all_answered(bot, chat_id: int, game_state: GameState):
         total_players = len(game_state.teams)
     
     if total_answered >= total_players:
-        # Все ответили! Отменяем таймер и переходим дальше
-        if game_state.timer_task:
-            game_state.timer_task.cancel()
-            game_state.timer_task = None
-        
-        # Показываем только правильный ответ
-        current_question = game_state.questions[game_state.current_q_idx]
-        result_text = f"📊 Правильный ответ: {current_question['correct_answer']}"
-        
-        await bot.send_message(chat_id, result_text)
-        
-        # Переходим к следующему вопросу
-        await move_to_next_question(bot, chat_id, game_state)
+        # Атомарно закрываем вопрос, чтобы не было дублей
+        if game_state.transition_lock is None:
+            game_state.transition_lock = asyncio.Lock()
+        should_send_dm = False
+        should_advance_team = False
+        async with game_state.transition_lock:
+            if game_state.is_finishing or game_state.status != "playing":
+                return
+            if game_state.question_result_sent:
+                return
+            # Все ответили — отменим таймер
+            if game_state.timer_task:
+                try:
+                    game_state.timer_task.cancel()
+                except Exception:
+                    pass
+                game_state.timer_task = None
+            game_state.question_result_sent = True
+            if game_state.mode == "team":
+                should_advance_team = True
+            else:
+                game_state.waiting_next = True
+                should_send_dm = True
+
+        if game_state.mode == "team":
+            try:
+                await bot.send_message(
+                    chat_id,
+                    TextStatics.show_right_answer_only(game_state.current_correct_answer)
+                )
+            except Exception:
+                pass
+            if should_advance_team:
+                await move_to_next_question(bot, chat_id, game_state)
+            return
+
+        if should_send_dm:
+            right_list = sorted(list(game_state.answers_right))
+            wrong_list = sorted(list(game_state.answers_wrong))
+            not_answered_list = [p for p in sorted(list(game_state.players)) if p not in game_state.answers_right and p not in game_state.answers_wrong]
+            result_text = TextStatics.dm_quiz_question_result_message(
+                right_answer=game_state.current_correct_answer,
+                not_answered=not_answered_list,
+                wrong_answers=wrong_list,
+                right_answers=right_list,
+            )
+            await bot.send_message(chat_id, result_text, reply_markup=question_result_keyboard(include_finish=False))
 
 
-async def schedule_question_timeout(timeout_seconds: int, on_timeout_callback) -> asyncio.Task:
-    """Создать таймер для вопроса."""
+async def schedule_question_timeout(timeout_seconds: int, on_timeout_callback, bot=None, chat_id=None, game_state: GameState | None = None, token: int | None = None) -> asyncio.Task:
+    """Создать таймер для вопроса с промежуточными уведомлениями.
+
+    Старые/неактуальные таймеры подавляются проверкой game_state/token.
+    """
+    def cancelled() -> bool:
+        if not game_state:
+            return False
+        if game_state.is_finishing or game_state.status != "playing":
+            return True
+        if token is not None and token != game_state.question_token:
+            return True
+        return False
+
     async def timer():
         try:
-            await asyncio.sleep(timeout_seconds)
-            await on_timeout_callback()
+            # Промежуточные уведомления на 30 и 10 секунд
+            if timeout_seconds > 30 and bot and chat_id:
+                await asyncio.sleep(timeout_seconds - 30)
+                if not cancelled():
+                    try:
+                        await bot.send_message(chat_id, TextStatics.time_left_30())
+                    except Exception:
+                        pass
+            
+            if timeout_seconds > 10 and bot and chat_id:
+                await asyncio.sleep(20)  # Дополнительные 20 секунд до 10 секунд остатка
+                if not cancelled():
+                    try:
+                        await bot.send_message(chat_id, TextStatics.time_left_10())
+                    except Exception:
+                        pass
+            
+            # Финальное ожидание до конца времени
+            await asyncio.sleep(10)
+            if not cancelled():
+                await on_timeout_callback()
         except asyncio.CancelledError:
             pass
     return asyncio.create_task(timer())
@@ -342,14 +610,3 @@ def format_game_status(game_state, question_text: str | None = None) -> str:
         return '\n'.join(lines)
 
     return 'Игра завершена.'
-
-
-# team game process
-
-
-async def _edit_or_send(message: types.Message, text: str, reply_markup: types.InlineKeyboardMarkup):
-    """Utility: edit message if bot is author, else send new."""
-    try:
-        await message.edit_text(text, reply_markup=reply_markup)
-    except Exception:
-        await message.answer(text, reply_markup=reply_markup)

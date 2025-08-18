@@ -18,7 +18,6 @@ ALLOWED_HOSTS = []
 
 
 INSTALLED_APPS = [
-    'daphne',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -59,7 +58,6 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'botapi.wsgi.application'
-ASGI_APPLICATION = 'botapi.asgi.application'
 
 DATABASES = {
     'default': {
@@ -99,16 +97,6 @@ MEDIA_URL = 'media/'
 MEDIA_ROOT = BASE_DIR / 'media/'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
-
-# Channels layer via Redis for WebSocket pub/sub
-CHANNEL_LAYERS = {
-    'default': {
-        'BACKEND': 'channels_redis.core.RedisChannelLayer',
-        'CONFIG': {
-            'hosts': [('127.0.0.1', 6379)],
-        },
-    },
-}
 
 # Cache configuration via Redis for game state
 CACHES = {

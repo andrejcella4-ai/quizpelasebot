@@ -1,11 +1,11 @@
 from rest_framework import serializers
-from .models import TelegramPlayer, Quiz, Question
+from .models import Quiz, Question, Team, TelegramPlayer, PlanTeamQuiz
 
 
 class AuthPlayerSerializer(serializers.Serializer):
     telegram_id = serializers.IntegerField()
     first_name = serializers.CharField()
-    last_name = serializers.CharField()
+    last_name = serializers.CharField(required=False, allow_null=True, allow_blank=True)
     username = serializers.CharField(required=False, allow_null=True, allow_blank=True)
     phone = serializers.CharField(required=False, allow_null=True, allow_blank=True)
     lang_code = serializers.CharField(required=False, allow_null=True, allow_blank=True)
@@ -32,3 +32,31 @@ class QuestionListSerializer(serializers.ModelSerializer):
     def get_correct_answer(self, obj):
         ans = obj.questionanswer_set.filter(is_right=True).first()
         return ans.text if ans else ''
+
+
+class TeamSerializer(serializers.ModelSerializer):
+    captain_username = serializers.CharField(source='captain.username', read_only=True)
+
+    class Meta:
+        model = Team
+        fields = ('id', 'name', 'chat_username', 'captain_username', 'total_scores')
+        read_only_fields = ('captain', 'captain_username', 'total_scores')
+
+
+class PlanTeamQuizSerializer(serializers.ModelSerializer):
+    quiz_name = serializers.CharField(source='quiz.name', read_only=True)
+
+    class Meta:
+        model = PlanTeamQuiz
+        fields = ('id', 'quiz', 'quiz_name', 'scheduled_date')
+
+
+class TelegramPlayerUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TelegramPlayer
+        fields = ('notification_is_on',)
+
+
+class LeaderboardEntrySerializer(serializers.Serializer):
+    username = serializers.CharField()
+    total_xp = serializers.IntegerField()
