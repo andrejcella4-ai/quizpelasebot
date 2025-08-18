@@ -16,6 +16,8 @@ services:
     environment:
       - PYTHONPATH=/app
       - PYTHONUNBUFFERED=1
+    networks:
+      - app-network
 
   bot:
     build:
@@ -25,3 +27,9 @@ services:
       - ./bot:/app
     env_file:
       - .env
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
