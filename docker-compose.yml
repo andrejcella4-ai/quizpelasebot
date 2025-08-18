@@ -11,6 +11,8 @@ services:
       - "8000:8000"
     volumes:
       - ./api:/app
+    env_file:
+      - .env
     environment:
       - PYTHONPATH=/app
       - PYTHONUNBUFFERED=1
