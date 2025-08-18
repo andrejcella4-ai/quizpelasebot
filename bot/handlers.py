@@ -451,27 +451,14 @@ async def text_answer(message: types.Message, state: FSMContext):
         await message.answer(TextStatics.please_choose_variant())
 
 
-@router.callback_query(lambda c: c.data == 'next_question')
+@router.callback_query(lambda c: c.data == 'next_question' and c.message.chat.type == 'private')
 async def next_question(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
-    # Обрабатываем этот хэндлер только в личных чатах (solo). В группах используется DM/Team хэндлер.
-    if callback.message.chat.type == 'private':
-        if (await state.get_state()) != SoloGameStates.WAITING_NEXT:
-            return
-        await send_question(callback.message, state)
-        await state.set_state(SoloGameStates.WAITING_ANSWER)
-    else:
-        game_key = _get_game_key_for_chat(callback.message.chat.id)
-        if not game_key:
-            return
-        game_state = get_game_state(game_key)
-        # В командном/DM режиме разрешаем переходить к следующему вопросу независимо от FSM состояний Solo
-        if not game_state.waiting_next:
-            # Если таймер истёк не через наш обработчик, и флаг не успели выставить — всё равно позволим перейти
-            pass
-        game_state.waiting_next = False
-        # Переходим к следующему вопросу
-        await move_to_next_question(callback.message.bot, callback.message.chat.id, game_state)
+    # Обрабатываем этот хэндлер ТОЛЬКО в личных чатах (solo). В группах используется DM/Team хэндлер.
+    if (await state.get_state()) != SoloGameStates.WAITING_NEXT:
+        return
+    await send_question(callback.message, state)
+    await state.set_state(SoloGameStates.WAITING_ANSWER)
 
 
 @router.callback_query(lambda c: c.data == 'back')

@@ -4,17 +4,17 @@ from dotenv import load_dotenv
 import os
 
 
-load_dotenv()
+load_dotenv(Path(__file__).resolve().parent.parent)
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
-SECRET_KEY = os.getenv('SECRET_KEY')
+SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-&ysbel6!flz=5(1&z3pjmf=)r5s@69xi+^b10fkb34xbg0$mo0')
 
-DEBUG = os.getenv('DEBUG').lower() == 'true'
+DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
 
-ALLOWED_HOSTS = os.getenv('HOSTS').split()
+ALLOWED_HOSTS = os.getenv('HOSTS', '').split()
 
 INSTALLED_APPS = [
     'django.contrib.admin',

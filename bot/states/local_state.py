@@ -48,6 +48,8 @@ class GameState:
     # snapshot of current question to avoid index races
     current_question_id: int | None = None
     current_correct_answer: str | None = None
+    # prevent duplicate Next transitions
+    next_in_progress: bool = False
 
 
 def get_game_state(game_key: str) -> GameState:

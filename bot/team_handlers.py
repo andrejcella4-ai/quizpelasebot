@@ -4,6 +4,7 @@ import asyncio
 from datetime import datetime, timedelta
 
 from aiogram import Router, types
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.filters import Command
 
@@ -282,9 +283,12 @@ async def start_team_game_early(callback: types.CallbackQuery, state: FSMContext
     try:
         await callback.message.edit_text(prep_text)
         game_state.message_id = callback.message.message_id
-    except Exception:
-        sent = await callback.message.answer(prep_text)
-        game_state.message_id = sent.message_id
+    except TelegramBadRequest as e:
+        if "message is not modified" in str(e):
+            game_state.message_id = callback.message.message_id
+        else:
+            sent = await callback.message.answer(prep_text)
+            game_state.message_id = sent.message_id
     
     # Через REGISTRATION_DURATION секунд стартуем (как on_expire)
     async def _delayed_start():
@@ -309,8 +313,9 @@ async def start_team_game_early(callback: types.CallbackQuery, state: FSMContext
                     message_id=game_state.message_id,
                     text=TextStatics.team_prep_message_started(game_state.quiz_name or "Командная викторина", list(game_state.captains.values())[0])
                 )
-            except Exception:
-                await callback.message.answer(TextStatics.team_prep_message_started(game_state.quiz_name or "Командная викторина", list(game_state.captains.values())[0]))
+            except TelegramBadRequest as e:
+                if "message is not modified" not in str(e):
+                    await callback.message.answer(TextStatics.team_prep_message_started(game_state.quiz_name or "Командная викторина", list(game_state.captains.values())[0]))
             await start_game_questions(callback, game_state)
         except Exception:
             pass
@@ -346,9 +351,12 @@ async def choose_team_plan(callback: types.CallbackQuery, state: FSMContext):
     try:
         await callback.message.edit_text(prep_text)
         game_state.message_id = callback.message.message_id
-    except Exception:
-        sent = await callback.message.answer(prep_text)
-        game_state.message_id = sent.message_id
+    except TelegramBadRequest as e:
+        if "message is not modified" in str(e):
+            game_state.message_id = callback.message.message_id
+        else:
+            sent = await callback.message.answer(prep_text)
+            game_state.message_id = sent.message_id
     
     # По истечении подготовки загрузим вопросы и начнём
     async def _delayed_start_after_choose():
@@ -372,8 +380,9 @@ async def choose_team_plan(callback: types.CallbackQuery, state: FSMContext):
                     message_id=game_state.message_id,
                     text=TextStatics.team_prep_message_started(game_state.quiz_name or "Командная викторина", list(game_state.captains.values())[0])
                 )
-            except Exception:
-                await callback.message.answer(TextStatics.team_prep_message_started(game_state.quiz_name or "Командная викторина", list(game_state.captains.values())[0]))
+            except TelegramBadRequest as e:
+                if "message is not modified" not in str(e):
+                    await callback.message.answer(TextStatics.team_prep_message_started(game_state.quiz_name or "Командная викторина", list(game_state.captains.values())[0]))
             await start_game_questions(callback, game_state)
         except Exception:
             pass
@@ -427,10 +436,14 @@ async def reg_end_dm(callback: types.CallbackQuery):
         game_state.timer_task.cancel()
         game_state.timer_task = None
 
-    await callback.message.edit_text(
-        TextStatics.dm_select_theme_message(),
-        reply_markup=quiz_theme_keyboard([(q.get("name", str(q.get("id"))), q.get("id")) for q in game_state.available_quizzes])
-    )
+    try:
+        await callback.message.edit_text(
+            TextStatics.dm_select_theme_message(),
+            reply_markup=quiz_theme_keyboard([(q.get("name", str(q.get("id"))), q.get("id")) for q in game_state.available_quizzes])
+        )
+    except TelegramBadRequest as e:
+        if "message is not modified" not in str(e):
+            raise
 
 
 # -------- обработка ответов во время игры --------
@@ -461,6 +474,11 @@ async def answer_variant_callback(callback: types.CallbackQuery):
 
         if list(game_state.captains.values())[0] != username:
             await callback.answer(TextStatics.captain_only_can_answer())
+            return
+    else:
+        # DM: только зарегистрированные игроки
+        if username not in game_state.players:
+            await callback.answer(TextStatics.only_registered_can_answer())
             return
 
     # Проверяем, что игрок еще не отвечал
@@ -504,43 +522,51 @@ async def choose_theme_dm(callback: types.CallbackQuery):
     if not game_key:
         return
     game_state = get_game_state(game_key)
-    if game_state.mode != "dm" or game_state.status != "reg":
-        return
+    # Сериализуем старт DM-игры на этапе выбора темы, чтобы не было дублей
+    if game_state.transition_lock is None:
+        game_state.transition_lock = asyncio.Lock()
+    async with game_state.transition_lock:
+        if game_state.mode != "dm" or game_state.status != "reg":
+            return
 
-    selected_id_str = callback.data.split(":", 1)[1]
-    try:
-        selected_id = int(selected_id_str)
-    except ValueError:
-        return
-    # Найдем квиз по id
-    quiz = next((q for q in game_state.available_quizzes if q.get("id") == selected_id), None)
-    if not quiz:
-        return
+        selected_id_str = callback.data.split(":", 1)[1]
+        try:
+            selected_id = int(selected_id_str)
+        except ValueError:
+            return
+        # Найдем квиз по id
+        quiz = next((q for q in game_state.available_quizzes if q.get("id") == selected_id), None)
+        if not quiz:
+            return
 
-    game_state.quiz_id = quiz["id"]
-    game_state.quiz_name = quiz.get("name")
+        game_state.quiz_id = quiz["id"]
+        game_state.quiz_name = quiz.get("name")
 
-    # Загрузим вопросы
-    # Авторизуем инициатора, чтобы получить токен
-    token = await auth_player(
-        telegram_id=callback.from_user.id,
-        first_name=callback.from_user.first_name,
-        last_name=callback.from_user.last_name or "",
-        username=callback.from_user.username,
-        phone=None,
-        lang_code=callback.from_user.language_code
-    )
+        # Загрузим вопросы
+        token = await auth_player(
+            telegram_id=callback.from_user.id,
+            first_name=callback.from_user.first_name,
+            last_name=callback.from_user.last_name or "",
+            username=callback.from_user.username,
+            phone=None,
+            lang_code=callback.from_user.language_code
+        )
 
-    questions_data = await get_questions(token, game_state.quiz_id)
-    game_state.questions = questions_data["questions"]
-    game_state.total_questions = len(game_state.questions)
-    game_state.status = "playing"
+        questions_data = await get_questions(token, game_state.quiz_id)
+        game_state.questions = questions_data["questions"]
+        game_state.total_questions = len(game_state.questions)
+        game_state.status = "playing"
 
-    await callback.message.edit_text(
-        TextStatics.theme_selected_start(game_state.quiz_name or str(selected_id), game_state.total_questions)
-    )
+        # Безопасно редактируем сообщение (игнорируем "message is not modified")
+        try:
+            await callback.message.edit_text(
+                TextStatics.theme_selected_start(game_state.quiz_name or str(selected_id), game_state.total_questions)
+            )
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e):
+                raise
 
-    # Стартуем вопросы
+    # Стартуем вопросы (вне lock)
     await start_game_questions(callback, game_state)
 
 
@@ -587,6 +613,10 @@ async def answer_text_message(message: types.Message):
             return
     
     # Проверяем, что игрок еще не отвечал
+    # В DM пускаем отвечать только зарегистрированных игроков
+    if game_state.mode == "dm" and username not in game_state.players:
+        await message.answer(TextStatics.only_registered_can_answer())
+        return
     if username in game_state.answers_right or username in game_state.answers_wrong:
         await message.answer(TextStatics.already_answered())
         return
@@ -625,13 +655,20 @@ async def next_question_dm_team(callback: types.CallbackQuery):
     async with game_state.transition_lock:
         if game_state.is_finishing or game_state.status != "playing":
             return
-        if not game_state.waiting_next:
+        # Разрешаем переход, если мы действительно на этапе после вывода результата
+        if not (game_state.waiting_next or game_state.question_result_sent):
             return
+        # Двойная защита от дублей: флаг на период перехода
+        if getattr(game_state, 'next_in_progress', False):
+            return
+        game_state.next_in_progress = True
         # Снимаем ожидание и помечаем, что результат уже отправлен, чтобы второй клик ничего не делал
         game_state.waiting_next = False
         game_state.question_result_sent = True
     # Переходим к следующему вопросу (вне lock)
     await move_to_next_question(callback.message.bot, callback.message.chat.id, game_state)
+    # Сбросим флаг после фактического выхода на следующий вопрос
+    game_state.next_in_progress = False
 
 
 # --- Отмена игры кнопкой ---
