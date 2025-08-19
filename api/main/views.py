@@ -87,7 +87,8 @@ class QuestionListView(APIView):
         random.shuffle(all_questions)
 
         selected = all_questions[:quiz.amount_questions]
-        serializer = QuestionListSerializer(selected, many=True)
+        # Передаем time_to_answer из Quiz в контекст сериализатора, чтобы оно добавилось к каждому вопросу
+        serializer = QuestionListSerializer(selected, many=True, context={'time_to_answer': quiz.time_to_answer})
 
         return Response(serializer.data)
 

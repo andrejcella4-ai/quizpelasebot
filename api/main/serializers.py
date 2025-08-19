@@ -21,10 +21,11 @@ class QuizInfoSerializer(serializers.ModelSerializer):
 class QuestionListSerializer(serializers.ModelSerializer):
     wrong_answers = serializers.SerializerMethodField()
     correct_answer = serializers.SerializerMethodField()
+    time_to_answer = serializers.SerializerMethodField()
 
     class Meta:
         model = Question
-        fields = ('id', 'text', 'question_type', 'wrong_answers', 'correct_answer')
+        fields = ('id', 'text', 'question_type', 'wrong_answers', 'correct_answer', 'time_to_answer')
 
     def get_wrong_answers(self, obj):
         return list(obj.questionanswer_set.filter(is_right=False).values_list('text', flat=True))
@@ -32,6 +33,14 @@ class QuestionListSerializer(serializers.ModelSerializer):
     def get_correct_answer(self, obj):
         ans = obj.questionanswer_set.filter(is_right=True).first()
         return ans.text if ans else ''
+
+    def get_time_to_answer(self, obj):
+        # Берем из контекста, куда передается значение из связанного Quiz
+        value = self.context.get('time_to_answer')
+        try:
+            return int(value) if value is not None else None
+        except Exception:
+            return None
 
 
 class TeamSerializer(serializers.ModelSerializer):
