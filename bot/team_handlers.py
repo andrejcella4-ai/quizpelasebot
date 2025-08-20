@@ -574,14 +574,10 @@ async def choose_theme_dm(callback: types.CallbackQuery):
     lambda m:
     m.chat
     and _get_game_key_for_chat(m.chat.id)
-    and (game_state := get_game_state(_get_game_key_for_chat(m.chat.id))).status == "playing"
+    and get_game_state(_get_game_key_for_chat(m.chat.id)).status == "playing"
     and (
-        (
-            m.reply_to_message is not None
-            and m.reply_to_message.message_id == game_state.current_question_msg_id
-        ) or (
-            m.text and (m.text.startswith("/otvet") or m.text.startswith("/answer"))
-        )
+        (m.text and (m.text.startswith("/otvet") or m.text.startswith("/answer")))
+        or (m.reply_to_message is not None)
     )
 )
 async def answer_text_message(message: types.Message):
@@ -591,6 +587,12 @@ async def answer_text_message(message: types.Message):
     
     game_state = get_game_state(game_key)
     
+    # Если это ответ-реплай, убеждаемся, что он к текущему вопросу
+    if message.reply_to_message is not None:
+        # current_question_msg_id должен быть уже установлен send_next_question()
+        if game_state.current_question_msg_id is None or message.reply_to_message.message_id != game_state.current_question_msg_id:
+            return
+
     # Проверяем, что это текстовый вопрос
     if game_state.current_q_idx >= len(game_state.questions):
         return

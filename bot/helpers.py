@@ -107,19 +107,26 @@ async def send_next_question(bot, chat_id: int, game_state: GameState):
         game_state.current_correct_answer = None
 
     # Удаляем предыдущее сообщение с вопросом и гасим предыдущий таймер
-    if game_state.timer_task:
-        try:
-            game_state.timer_task.cancel()
-        except Exception:
-            pass
-        game_state.timer_task = None
     if game_state.current_question_msg_id:
-        try:
-            await bot.delete_message(chat_id, game_state.current_question_msg_id)
-        except Exception:
-            pass
+        if game_state.timer_task:
+            try:
+                game_state.timer_task.cancel()
+            except Exception:
+                pass
+            game_state.timer_task = None
 
-    sent_msg = await bot.send_message(chat_id, text, reply_markup=kb)
+        await bot.delete_message(chat_id, game_state.current_question_msg_id)
+
+    try:
+        sent_msg = await bot.send_message(chat_id, text, reply_markup=kb)
+    except asyncio.CancelledError as e:
+        print("send_next_question: CancelledError; state=", game_state.status, "q_idx=", game_state.current_q_idx)
+        return
+    except Exception as e:
+        print("send_next_question: send_message failed:", type(e).__name__, e)
+        import traceback; traceback.print_exc()
+        return
+
     game_state.current_question_msg_id = sent_msg.message_id
     game_state.waiting_next = False
     game_state.attempts_left_by_user.clear()
