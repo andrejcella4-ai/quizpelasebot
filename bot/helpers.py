@@ -151,11 +151,8 @@ async def send_next_question(bot, chat_id: int, game_state: GameState):
                     return
                 # Отменяем таймер
                 if game_state.timer_task:
-                    try:
-                        game_state.timer_task.cancel()
-                    except Exception:
-                        pass
                     game_state.timer_task = None
+
                 game_state.question_result_sent = True
                 if game_state.mode == "team":
                     should_advance_team = True
@@ -164,7 +161,7 @@ async def send_next_question(bot, chat_id: int, game_state: GameState):
                     should_send_dm = True
 
             if game_state.mode == "team":
-                # Команда: короткое сообщение и переход дальше
+                # Команда: короткое сообщение и гарантированный переход дальше
                 try:
                     correct = game_state.current_correct_answer
                     await bot.send_message(
@@ -174,7 +171,8 @@ async def send_next_question(bot, chat_id: int, game_state: GameState):
                 except Exception:
                     pass
                 if should_advance_team:
-                    await move_to_next_question(bot, chat_id, game_state)
+                    # Запланируем переход как отдельную задачу, чтобы он произошёл даже при отмене текущей корутины
+                    asyncio.create_task(move_to_next_question(bot, chat_id, game_state))
                 return
 
             if should_send_dm:
@@ -188,6 +186,9 @@ async def send_next_question(bot, chat_id: int, game_state: GameState):
                     right_answers=right_list,
                 )
                 await bot.send_message(chat_id, result_text, reply_markup=question_result_keyboard(include_finish=False))
+                # Явно включаем фазу ожидания Next (на случай гонок)
+                game_state.waiting_next = True
+                game_state.question_result_sent = True
         except Exception as e:
             print(f"Ошибка в on_timeout: {e}")
             traceback.print_exc()

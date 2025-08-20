@@ -670,8 +670,8 @@ async def next_question_dm_team(callback: types.CallbackQuery):
         # Снимаем ожидание и помечаем, что результат уже отправлен, чтобы второй клик ничего не делал
         game_state.waiting_next = False
         game_state.question_result_sent = True
-    # Переходим к следующему вопросу (вне lock)
-    await move_to_next_question(callback.message.bot, callback.message.chat.id, game_state)
+    # Переходим к следующему вопросу (вне lock), как отдельная задача чтобы исключить блокировки и гонки
+    asyncio.create_task(move_to_next_question(callback.message.bot, callback.message.chat.id, game_state))
     # Сбросим флаг после фактического выхода на следующий вопрос
     game_state.next_in_progress = False
 

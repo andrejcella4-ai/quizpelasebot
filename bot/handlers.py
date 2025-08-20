@@ -60,6 +60,8 @@ def schedule_question_timeout_solo(delay: int, state: FSMContext, index: int, q:
                 )
                 await message.answer(result_text, reply_markup=question_result_keyboard())
                 await state.update_data(incorrect=curr_data.get('incorrect', 0) + 1)
+                # Критично: после тайм-аута двигаем индекс на следующий вопрос
+                await state.update_data(current_index=index + 1)
                 await state.set_state(SoloGameStates.WAITING_NEXT)
         except asyncio.CancelledError:
             pass
@@ -461,7 +463,8 @@ async def next_question(callback: types.CallbackQuery, state: FSMContext):
     # Обрабатываем этот хэндлер ТОЛЬКО в личных чатах (solo). В группах используется DM/Team хэндлер.
     if (await state.get_state()) != SoloGameStates.WAITING_NEXT:
         return
-    await send_question(callback.message, state)
+    # Запускаем отправку следующего вопроса как фоновую задачу, чтобы исключить гонки
+    asyncio.create_task(send_question(callback.message, state))
     await state.set_state(SoloGameStates.WAITING_ANSWER)
 
 
