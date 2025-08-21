@@ -4,6 +4,7 @@ import traceback
 
 import asyncio
 from datetime import datetime
+import pytz
 
 from aiogram import types
 from aiogram.fsm.context import FSMContext
@@ -12,8 +13,8 @@ from states.fsm import SoloGameStates
 from states.local_state import GameState, get_game_state, _get_game_key_for_chat, _games_state
 from static.answer_texts import TextStatics
 from static.choices import QuestionTypeChoices
-from keyboards import create_variant_keyboard, question_result_keyboard
-from api_client import players_game_end_bulk, team_game_end
+from keyboards import create_variant_keyboard, question_result_keyboard, main_menu_keyboard
+from api_client import players_game_end_bulk, team_game_end, auth_player, create_team, get_players_total_points
 
 
 
@@ -74,9 +75,10 @@ async def send_next_question(bot, chat_id: int, game_state: GameState):
             captain_username = None
         mention = f"@{captain_username}" if captain_username and not captain_username.startswith("@") else (captain_username or "")
         text = TextStatics.team_quiz_question_template(
-            mention,
-            question["text"],
-            question.get("time_to_answer", 120),
+            current_q_idx=game_state.current_q_idx + 1,
+            username=mention,
+            text=question["text"],
+            timer=question.get("time_to_answer", 120),
         )
     else:
         text = TextStatics.format_question_text(
@@ -179,11 +181,13 @@ async def send_next_question(bot, chat_id: int, game_state: GameState):
                 right_list = sorted(list(game_state.answers_right))
                 wrong_list = sorted(list(game_state.answers_wrong))
                 not_answered_list = [p for p in sorted(list(game_state.players)) if p not in game_state.answers_right and p not in game_state.answers_wrong]
+                totals = {u: int(game_state.scores.get(u, 0)) * 10 for u in set(right_list + wrong_list)}
                 result_text = TextStatics.dm_quiz_question_result_message(
                     right_answer=game_state.current_correct_answer,
                     not_answered=not_answered_list,
                     wrong_answers=wrong_list,
                     right_answers=right_list,
+                    totals=totals,
                 )
                 await bot.send_message(chat_id, result_text, reply_markup=question_result_keyboard(include_finish=False))
                 # Явно включаем фазу ожидания Next (на случай гонок)
@@ -237,7 +241,31 @@ async def show_final_results(bot, chat_id: int, game_state: GameState):
             text = TextStatics.no_participants_game_finished()
         else:
             sorted_scores = sorted(game_state.scores.items(), key=lambda x: x[1], reverse=True)
-            text = TextStatics.dm_quiz_finished_full(sorted_scores, registered_count=len(game_state.players))
+            participants_total_points = None
+            players_totals = None
+            try:
+                system_token = os.getenv('BOT_SYSTEM_TOKEN') or os.getenv('BOT_TOKEN', '')
+                usernames = list(game_state.players)
+                if usernames and system_token:
+                    api_items = await get_players_total_points(usernames, system_token)
+                    # api_items: list of {username, total_xp}
+                    players_totals = []
+                    for item in api_items:
+                        if isinstance(item, dict):
+                            uname = item.get('username')
+                            total = int(item.get('total_xp', 0))
+                            if uname:
+                                players_totals.append((uname, total))
+                    participants_total_points = sum(total for _, total in players_totals) if players_totals else 0
+            except Exception:
+                participants_total_points = None
+                players_totals = None
+            text = TextStatics.dm_quiz_finished_full(
+                sorted_scores,
+                registered_count=len(game_state.players),
+                participants_total_points=participants_total_points,
+                players_totals=players_totals,
+            )
     return text
 
 
@@ -334,7 +362,7 @@ async def process_answer(bot, chat_id: int, game_state: GameState, username: str
             gain = 1
 
         if game_state.mode == "dm":
-            # В DM считаем количество правильных ответов (по 10 XP каждый в отображении)
+            # В DM считаем количество правильных ответов (по 10 баллов в отображении)
             game_state.scores[username] = game_state.scores.get(username, 0) + 1
         elif game_state.mode == "team":
             for team, _ in game_state.teams.items():
@@ -443,11 +471,13 @@ async def check_if_all_answered(bot, chat_id: int, game_state: GameState):
             right_list = sorted(list(game_state.answers_right))
             wrong_list = sorted(list(game_state.answers_wrong))
             not_answered_list = [p for p in sorted(list(game_state.players)) if p not in game_state.answers_right and p not in game_state.answers_wrong]
+            totals = {u: int(game_state.scores.get(u, 0)) * 10 for u in set(right_list + wrong_list)}
             result_text = TextStatics.dm_quiz_question_result_message(
                 right_answer=game_state.current_correct_answer,
                 not_answered=not_answered_list,
                 wrong_answers=wrong_list,
                 right_answers=right_list,
+                totals=totals,
             )
             await bot.send_message(chat_id, result_text, reply_markup=question_result_keyboard(include_finish=False))
 
@@ -618,3 +648,44 @@ def format_game_status(game_state, question_text: str | None = None) -> str:
         return '\n'.join(lines)
 
     return 'Игра завершена.'
+
+
+async def create_team_helper(
+    team_name: str, message: types.Message
+):
+    # Auth player to get token
+    token = await auth_player(
+        telegram_id=message.from_user.id,
+        first_name=message.from_user.first_name,
+        last_name=message.from_user.last_name or "",
+        username=message.from_user.username,
+        phone=None,
+        lang_code=message.from_user.language_code,
+    )
+
+    chat_username = message.chat.username or str(message.chat.id)
+    try:
+        await create_team(token, chat_username, team_name, message.from_user.id)
+        await message.answer(TextStatics.team_created_success(team_name), reply_markup=main_menu_keyboard())
+    except Exception as e:
+        print(e)
+        await message.answer(TextStatics.team_create_error())
+
+
+def get_today_games_avaliable(plans: list[dict]) -> list[dict]:
+    current_moscow_time = datetime.now(pytz.timezone('Europe/Moscow'))
+
+    return [
+        p for p in plans if (
+            # Преобразуем строку в datetime с timezone, учитывая что DRF возвращает строку с часовым поясом
+            (plan_datetime := datetime.fromisoformat(p['scheduled_datetime'])) <= current_moscow_time and
+            plan_datetime.date() == current_moscow_time.date()
+        )
+    ]
+
+
+def get_nearest_game_avaliable(plans: list[dict]) -> dict | None:
+    if not plans:
+        return None
+
+    return sorted(plans, key=lambda x: datetime.fromisoformat(x['scheduled_datetime']))[0]

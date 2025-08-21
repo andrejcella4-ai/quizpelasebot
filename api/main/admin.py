@@ -15,11 +15,19 @@ class TopicAdmin(admin.ModelAdmin):
     search_fields = ('name',)
 
 
+class QuestionAnswerInline(admin.StackedInline):
+    model = QuestionAnswer
+    extra = 1
+    fk_name = 'question'
+
+
 @admin.register(Question)
 class QuestionAdmin(admin.ModelAdmin):
     list_display = ('id', 'text', 'question_type', 'difficulty')
     list_filter = ('question_type', 'difficulty')
     search_fields = ('text',)
+
+    inlines = [QuestionAnswerInline]
 
 
 @admin.register(QuestionAnswer)
@@ -50,5 +58,5 @@ class TeamAdmin(admin.ModelAdmin):
 
 @admin.register(PlanTeamQuiz)
 class PlanTeamQuizAdmin(admin.ModelAdmin):
-    list_display = ('id', 'quiz', 'scheduled_date', 'created_at')
-    list_filter = ('scheduled_date',)
+    list_display = ('id', 'quiz', 'scheduled_datetime', 'created_at')
+    list_filter = ('scheduled_datetime',)

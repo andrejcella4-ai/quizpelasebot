@@ -18,6 +18,8 @@ from main.views import (
     PlayerLeaderboardView,
     TeamLeaderboardView,
     PlayerNotifyListView,
+    PlayerTotalPointsView,
+    PlayersTotalPointsView,
 )
 
 
@@ -33,11 +35,13 @@ urlpatterns = [
     path('quiz/list/<str:quiz_type>/', QuizListView.as_view(), name='quiz-list'),
     path('question/list/', QuestionListView.as_view(), name='question-list'),
     path('team/<str:chat_username>/', TeamByChatView.as_view(), name='team-by-chat'),
-    path('game/plan-game/list/<str:date_iso>/', PlanTeamQuizListView.as_view(), name='plan-team-quiz-list'),
+    path('game/plan-game/list/', PlanTeamQuizListView.as_view(), name='plan-team-quiz-list'),
     path('player/game-end/', PlayerGameEndView.as_view(), name='player-game-end'),
     path('team/game-end/<int:team_id>/', TeamGameEndView.as_view(), name='team-game-end'),
     path('player/<int:telegram_id>/', PlayerUpdateView.as_view(), name='player-update'),
     path('player/leaderboard/', PlayerLeaderboardView.as_view(), name='player-leaderboard'),
+    path('player/total-points/<str:username>/', PlayerTotalPointsView.as_view(), name='player-total-points'),
+    path('player/list/total-points/', PlayersTotalPointsView.as_view(), name='players-total-points'),
     path('team/leaderboard/', TeamLeaderboardView.as_view(), name='team-leaderboard'),
     path('player/notify-list/', PlayerNotifyListView.as_view(), name='player-notify-list'),
     path('', include(router.urls)),

@@ -191,7 +191,7 @@ async def leaderboard_command(message: types.Message):
             prefix = '🥉'
         else:
             prefix = '🔹'
-        lines.append(f"{prefix} {idx}. @{uname}: {xp} XP")
+        lines.append(f"{prefix} {idx}. @{uname}: {xp} баллов")
 
     lines.append('\n\n💡 Как повысить свое место:')
     lines.append('- Участвуйте в викторинах')
@@ -342,21 +342,25 @@ async def answer_callback(callback: types.CallbackQuery, state: FSMContext):
     is_correct = 0 <= selected_idx < len(options) and options[selected_idx] == q['correct_answer']
     username = callback.from_user.username or str(callback.from_user.id)
     if is_correct:
-        # Формат результата как в DM
+        # Формат результата как в DM, с указанием текущих баллов игрока
+        totals = {username: (data.get('correct', 0) + 1) * 10}
         result_text = TextStatics.dm_quiz_question_result_message(
             right_answer=q["correct_answer"],
             not_answered=[],
             wrong_answers=[],
             right_answers=[username],
+            totals=totals,
         )
         await callback.message.answer(result_text, reply_markup=question_result_keyboard())
         await state.update_data(correct=data.get('correct', 0) + 1)
     else:
+        totals = {username: (data.get('correct', 0)) * 10}
         result_text = TextStatics.dm_quiz_question_result_message(
             right_answer=q["correct_answer"],
             not_answered=[],
             wrong_answers=[username],
             right_answers=[],
+            totals=totals,
         )
         await callback.message.answer(result_text, reply_markup=question_result_keyboard())
         await state.update_data(incorrect=data.get('incorrect', 0) + 1)
@@ -426,11 +430,13 @@ async def text_answer(message: types.Message, state: FSMContext):
         if user_answer.lower().strip() == q['correct_answer'].lower().strip():
             # Показать DM-формат результата для соло
             username = message.from_user.username or str(message.from_user.id)
+            totals = {username: (data.get('correct', 0) + 1) * 10}
             result_text = TextStatics.dm_quiz_question_result_message(
                 right_answer=q["correct_answer"],
                 not_answered=[],
                 wrong_answers=[],
                 right_answers=[username],
+                totals=totals,
             )
             await message.answer(result_text, reply_markup=question_result_keyboard())
             await state.update_data(correct=data.get('correct', 0) + 1)
@@ -440,11 +446,13 @@ async def text_answer(message: types.Message, state: FSMContext):
             attempts_left -= 1
             if attempts_left <= 0:
                 username = message.from_user.username or str(message.from_user.id)
+                totals = {username: (data.get('correct', 0)) * 10}
                 result_text = TextStatics.dm_quiz_question_result_message(
                     right_answer=q["correct_answer"],
                     not_answered=[],
                     wrong_answers=[username],
                     right_answers=[],
+                    totals=totals,
                 )
                 await message.answer(result_text, reply_markup=question_result_keyboard())
                 await state.update_data(incorrect=data.get('incorrect', 0) + 1, current_index=index + 1)

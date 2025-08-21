@@ -3,8 +3,11 @@ from rest_framework import viewsets
 from rest_framework.response import Response
 from rest_framework import status, permissions, serializers
 from django.utils import timezone
+from django.utils.timezone import now
 
+from datetime import timedelta, datetime
 import random
+import pytz
 
 from .models import TelegramPlayer, Quiz, PlayerToken, Team, PlanTeamQuiz
 from .serializers import (
@@ -122,10 +125,38 @@ class TeamViewSet(viewsets.ModelViewSet):
 class PlanTeamQuizListView(APIView):
     permission_classes = [permissions.AllowAny]
 
-    def get(self, request, date_iso):
-        items = PlanTeamQuiz.objects.filter(scheduled_date=date_iso).select_related('quiz').order_by('id')
+    def get(self, request):
+        current_time = datetime.now(pytz.timezone('Europe/Moscow')).date()
+
+        items = PlanTeamQuiz.objects.filter(
+            scheduled_datetime__gte=current_time,
+        ).select_related('quiz').order_by('id')
+
         serializer = PlanTeamQuizSerializer(items, many=True)
         return Response(serializer.data)
+
+
+class PlayerTotalPointsView(APIView):
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+
+    def get(self, request, username):
+        player = TelegramPlayer.objects.filter(username=username).first()
+
+        if not player:
+            return Response({'detail': 'Player not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        return Response({'total_points': player.total_xp})
+
+
+class PlayersTotalPointsView(APIView):
+    authentication_classes = [SystemTokenAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        payload = request.data
+        players = TelegramPlayer.objects.filter(username__in=payload['usernames']).values('username', 'total_xp')
+        return Response(list(players))
 
 
 class PlayerGameEndView(APIView):

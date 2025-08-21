@@ -68,6 +68,9 @@ class Question(models.Model):
     topics = models.ManyToManyField(Topic, related_name='questions', verbose_name='Темы')
     comment = models.TextField(blank=True, null=True, verbose_name='Комментарий')
 
+    likes = models.PositiveIntegerField(default=0, verbose_name='Лайки')
+    dislikes = models.PositiveIntegerField(default=0, verbose_name='Дизлайки')
+
     def __str__(self):
         return self.text
 
@@ -113,11 +116,11 @@ class Quiz(models.Model):
 
 class PlanTeamQuiz(models.Model):
     quiz = models.ForeignKey('Quiz', on_delete=models.CASCADE, related_name='planned_team_quizzes', verbose_name='Квиз')
-    scheduled_date = models.DateField(verbose_name='Дата проведения')
+    scheduled_datetime = models.DateTimeField(verbose_name='Время проведения')
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='Создано')
 
     def __str__(self):
-        return f"{self.quiz.name} @ {self.scheduled_date.isoformat()}"
+        return f"{self.quiz.name} @ {self.scheduled_datetime.isoformat()}"
 
     class Meta:
         verbose_name = 'Запланированная командная игра'

@@ -61,9 +61,9 @@ async def player_update_notifications(telegram_id: int, notification_is_on: bool
             return await resp.json()
 
 
-async def list_plan_team_quizzes(date_iso: str) -> list[dict]:
+async def list_plan_team_quizzes() -> list[dict]:
     async with aiohttp.ClientSession() as session:
-        async with session.get(f'{BASE_URL}/game/plan-game/list/{date_iso}/') as resp:
+        async with session.get(f'{BASE_URL}/game/plan-game/list/') as resp:
             resp.raise_for_status()
             return await resp.json()
 
@@ -135,5 +135,15 @@ async def get_team(token: str, chat_username: str) -> Optional[Dict]:
         async with session.get(f'{BASE_URL}/team/{chat_username}/') as resp:
             if resp.status == 404:
                 return None
+            resp.raise_for_status()
+            return await resp.json()
+
+
+async def get_players_total_points(usernames: list[str], system_token: str) -> list[dict]:
+    """Возвращает список {username, total_xp} по списку usernames."""
+    headers = {'Authorization': f'Token {system_token}'}
+    payload = {'usernames': usernames}
+    async with aiohttp.ClientSession(headers=headers) as session:
+        async with session.post(f'{BASE_URL}/player/list/total-points/', json=payload) as resp:
             resp.raise_for_status()
             return await resp.json()

@@ -12,7 +12,7 @@ class TextStatics:
             "🏆 Результаты раунда:\n"
             f"✅ Правильных ответов: {right_answers}\n"
             f"❌ Неправильных: {wrong_answers}\n"
-            f"⭐ Опыт: {xp} XP\n\n"
+            f"⭐ Баллы: {xp} баллов\n\n"
             "👇 Что дальше?\n\n"
             "🎮 Для начала новой игры используйте команду /quiz"
         )
@@ -79,7 +79,10 @@ class TextStatics:
 
     @staticmethod
     def need_create_team_first() -> str:
-        return 'Сначала создайте команду через /create_team <Название>'
+        return (
+            'В этом чате пока нет команды.\n'
+            'Напиши название команды ответом на это сообщение, чтобы зарегистрировать свою команду в общей рейтинге и начать игру!'
+        )
 
     @staticmethod
     def need_team_name_hint() -> str:
@@ -87,7 +90,11 @@ class TextStatics:
 
     @staticmethod
     def team_created_success(team_name: str) -> str:
-        return f'Команда "{team_name}" успешно создана!'
+        return f'Команда "{team_name}" успешно создана!\n'
+
+    @staticmethod
+    def team_created_success_before_game(team_name: str) -> str:
+        return f'Команда "{team_name}" успешно создана!\nТеперь можете выбрать командный режим игры!'
 
     @staticmethod
     def team_create_error() -> str:
@@ -101,7 +108,7 @@ class TextStatics:
 • Обсуждаете вопрос всей командой\n
 • Капитан (@a_glinsky) сдаёт ваш ответ ответом на сообщение с вопросом или через команду /ответ ваш_ответ\n
 • Очки начисляются всей команде\n
-• 2 XP за правильный ответ с первой попытки и 1 XP - со второй\n
+• 2 балла за правильный ответ с первой попытки и 1 балл — со второй\n
 Готовность {seconds} сек. ⏳ Удачи, команда! 🧠💪
         """
 
@@ -150,7 +157,7 @@ class TextStatics:
         return (
             '🏁 Викторина завершена! Спасибо за игру — это было мощно! ⚡️\n\n'
             '🏆 Результаты раунда:\n'
-            f'👥 Команда "{team_name}": {score} XP\n\n'
+            f'👥 Команда "{team_name}": {score} баллов\n\n'
             '👇 Что дальше?\n\n'
             '🎮 Для начала новой игры используйте команду /menu'
         )
@@ -164,7 +171,12 @@ class TextStatics:
         return '🏆 Игра окончена!\n\n' + lines
 
     @staticmethod
-    def dm_quiz_finished_full(sorted_scores: list[tuple[str, int]], registered_count: int) -> str:
+    def dm_quiz_finished_full(
+        sorted_scores: list[tuple[str, int]],
+        registered_count: int,
+        participants_total_points: int | None = None,
+        players_totals: list[tuple[str, int]] | None = None,
+    ) -> str:
         if not sorted_scores:
             results = "—"
             participated = 0
@@ -173,17 +185,27 @@ class TextStatics:
             for idx, (name, score) in enumerate(sorted_scores, start=1):
                 prefix = "🥇" if idx == 1 else ("🥈" if idx == 2 else ("🥉" if idx == 3 else "🔹"))
                 handle = f"@{name}"
-                result_lines.append(f"{prefix} {idx}. {handle}: {score * 10} XP")
+                result_lines.append(f"{prefix} {idx}. {handle}: {score * 10} баллов")
             results = "\n".join(result_lines)
             participated = len(sorted_scores)
         percent = int(round((participated / registered_count) * 100)) if registered_count else 0
+        if players_totals:
+            totals_sorted = sorted(players_totals, key=lambda x: x[1], reverse=True)
+            totals_lines = []
+            for idx, (name, total_points) in enumerate(totals_sorted, start=1):
+                handle = f"@{name}"
+                totals_lines.append(f"{idx}. {handle}: {total_points} баллов")
+            stats_block = "📊 Общие баллы участников:\n" + "\n".join(totals_lines)
+        elif participants_total_points is not None:
+            stats_block = f"💰 Сумма баллов участников: {participants_total_points}"
+        else:
+            stats_block = f"👥 Участвовало: {participated} из {registered_count} зарегистрированных ({percent}%)"
         return (
             "🏁 Викторина завершена! Спасибо за игру — это было мощно! ⚡️\n\n"
             "🏆 Результаты раунда:\n"
             f"{results}\n"
             "👇 Что дальше?\n\n\n"
-            "📊 Статистика участия:\n"
-            f"👥 Участвовало: {participated} из {registered_count} зарегистрированных ({percent}%)\n"
+            f"{stats_block}\n"
             "🎮 Для начала новой игры используйте команду /quiz"
         )
 
@@ -220,7 +242,7 @@ class TextStatics:
             "Если хочешь участвовать в этом раунде — просто нажми кнопку ниже.\n"
             f"⏳ У тебя есть {seconds_left} секунд, чтобы вступить в игру! \n\n"
             "Чем больше участников — тем интереснее баттл! 🎯\n"
-            "👇 Жми, если готов(а) сражаться за XP и славу! 🧠⚡️"
+            "👇 Жми, если готов(а) сражаться за баллы и славу! 🧠⚡️"
         )
 
     @staticmethod
@@ -228,7 +250,7 @@ class TextStatics:
         return """
 🎯 Мы начинаем игру...
 
-Впереди один раунд и шесть вопросов! За каждый правильный ответ — +10 XP в копилку.
+Впереди один раунд и шесть вопросов! За каждый правильный ответ — +10 баллов в копилку.
 
 👇 Итак, тема для раунда:
         """
@@ -237,7 +259,7 @@ class TextStatics:
     def theme_selected_start(name: str, amount: int) -> str:
         return f"""
 🎯 Категория "{name}" — принял!
-Будет жарко 🔥 — {amount} вопросов, 10 XP за каждый правильный ответ.
+Будет жарко 🔥 — {amount} вопросов, 10 баллов за каждый правильный ответ.
 
 Скоро начнём! 🧠⚡️
         """
@@ -315,7 +337,7 @@ class TextStatics:
         return """
         🎯 Мы начинаем игру...
 
-        Впереди один раунд и шесть вопросов! За каждый правильный ответ — +10 XP в копилку.
+        Впереди один раунд и шесть вопросов! За каждый правильный ответ — +10 баллов в копилку.
 
         👇 Итак, тема для раунда:
         """
@@ -324,7 +346,7 @@ class TextStatics:
     def dm_quiz_after_start_message(question_amount: int):
         return f"""
         🎯 Категория "Обо всем" — принял!
-        Будет жарко 🔥 — {question_amount} вопросов, 10 XP за каждый правильный ответ.
+        Будет жарко 🔥 — {question_amount} вопросов, 10 баллов за каждый правильный ответ.
 
         Скоро начнём! 🧠⚡️
         """
@@ -334,15 +356,24 @@ class TextStatics:
         right_answer: str,
         not_answered: list[str],
         wrong_answers: list[str],
-        right_answers: list[str]
+        right_answers: list[str],
+        totals: dict[str, int] | None = None,
     ) -> str:
         blocks = []
         if right_answers:
-            # Добавляем ": +10 XP" к каждому
-            rights = "\n".join([f"{name}: +10 XP" for name in right_answers])
+            # Добавляем ": +10 баллов" к каждому и общий счет в скобках
+            def _fmt_right(name: str) -> str:
+                if totals and name in totals:
+                    return f"{name}: +10 баллов ({totals[name]})"
+                return f"{name}: +10 баллов"
+            rights = "\n".join([_fmt_right(name) for name in right_answers])
             blocks.append(f"✅ Правильно ответили:\n{rights}")
         if wrong_answers:
-            wrongs = "\n".join(wrong_answers)
+            def _fmt_wrong(name: str) -> str:
+                if totals and name in totals:
+                    return f"{name} ({totals[name]})"
+                return name
+            wrongs = "\n".join([_fmt_wrong(name) for name in wrong_answers])
             blocks.append(f"❌ Неправильно ответили:\n{wrongs}")
         if not_answered:
             na = "\n".join(not_answered)
@@ -357,23 +388,24 @@ class TextStatics:
         )
 
     @staticmethod
-    def dm_quiz_question_template(text: str, timer: int) -> str:
+    def dm_quiz_question_template(text: str, timer: int, current_q_idx: int) -> str:
         return f"""
+Вопрос №{current_q_idx}
 🧠  {text}
 
 ⏱ ТАЙМЕР: {timer} сек
         """
 
     @staticmethod
-    def team_quiz_question_template(username: str, text: str, timer: int) -> str:
-        return TextStatics.dm_quiz_question_template(text, timer) + f"""
+    def team_quiz_question_template(current_q_idx: int, username: str, text: str, timer: int) -> str:
+        return TextStatics.dm_quiz_question_template(text, timer, current_q_idx) + f"""
 💡 {username}, отвечай командами /otvet и /answer или просто ответь на это сообщение
 📝 У вас 2 попытки
         """
 
     @staticmethod
     def team_quiz_question_right_answer(username: str, xp: int) -> str:
-        return f"🎉 Правильный ответ от {username}! +{xp} XP всей команде"
+        return f"🎉 Правильный ответ от {username}! +{xp} баллов всей команде"
 
     @staticmethod
     def team_start_message(team_name: str, username: str) -> str:
@@ -388,7 +420,7 @@ class TextStatics:
 
         • Очки начисляются всей команде
 
-        • 2 XP за правильный ответ с первой попытки и 1 XP - со второй
+        • 2 балла за правильный ответ с первой попытки и 1 балл — со второй
 
         Время пошло! ⏳ Удачи, команда! 🧠💪
         """
@@ -402,7 +434,7 @@ class TextStatics:
             f"• Обсуждаете вопрос всей командой\n\n"
             f"• Капитан ({captain}) сдаёт ваш ответ ответом на сообщение с вопросом или через команду /ответ ваш_ответ\n\n"
             f"• Очки начисляются всей команде\n\n"
-            f"• 2 XP за правильный ответ с первой попытки и 1 XP - со второй\n\n"
+            f"• 2 балла за правильный ответ с первой попытки и 1 балл — со второй\n\n"
             f"⏳ Подготовка: {seconds} сек"
         )
 
@@ -415,7 +447,7 @@ class TextStatics:
             f"• Обсуждаете вопрос всей командой\n\n"
             f"• Капитан ({captain}) сдаёт ваш ответ ответом на сообщение с вопросом или через команду /ответ ваш_ответ\n\n"
             f"• Очки начисляются всей команде\n\n"
-            f"• 2 XP за правильный ответ с первой попытки и 1 XP - со второй\n\n"
+            f"• 2 балла за правильный ответ с первой попытки и 1 балл — со второй\n\n"
             f"Время пошло! ⏳ Удачи, команда! 🧠💪"
         )
 
@@ -443,13 +475,13 @@ class TextStatics:
         ⏳ У тебя есть 60 секунд, чтобы вступить в игру! 
 
         Чем больше участников — тем интереснее баттл! 🎯
-        👇 Жми, если готов(а) сражаться за XP и славу! 🧠⚡️
+        👇 Жми, если готов(а) сражаться за баллы и славу! 🧠⚡️
         """
 
     @staticmethod
     def format_question_text(index: int, text: str, time_limit: int) -> str:
         # Формат вопроса как в примерах JSON
-        return TextStatics.dm_quiz_question_template(text, time_limit).strip()
+        return TextStatics.dm_quiz_question_template(text, time_limit, index).strip()
     
     @staticmethod
     def get_solo_intro(name: str, amount: int) -> str:

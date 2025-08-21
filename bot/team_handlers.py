@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 
 from aiogram import Router, types
 from aiogram.exceptions import TelegramBadRequest
@@ -26,6 +26,9 @@ from helpers import (
     move_to_next_question,
     show_final_results,
     finalize_game,
+    create_team_helper,
+    get_today_games_avaliable,
+    get_nearest_game_avaliable,
 )
 from states.local_state import (
     get_game_state,
@@ -36,6 +39,7 @@ from states.local_state import (
 from static.answer_texts import TextStatics
 from states.fsm import SoloGameStates
 from static.choices import QuestionTypeChoices
+from states.fsm import TeamGameStates
 
 
 router = Router(name="team_handlers")
@@ -138,6 +142,26 @@ async def create_team_command(message: types.Message, state: FSMContext):
         await message.answer(TextStatics.team_create_error())
 
 
+@router.message(TeamGameStates.TEAM_CREATE_NAME)
+async def create_team_name(message: types.Message, state: FSMContext):
+    create_team_message_id = (await state.get_data()).get("create_team_message_id")
+    send_from_user_id = (await state.get_data()).get("send_from_user_id")
+
+    if not message.reply_to_message:
+        return
+
+    if create_team_message_id == message.reply_to_message.message_id and send_from_user_id == message.from_user.id:
+        if not message.text.strip():
+            await message.answer(TextStatics.no_text_in_team_name())
+            return
+
+        await message.bot.delete_message(message.chat.id, create_team_message_id)
+
+        await create_team_helper(message.text.strip(), message)
+
+        await state.clear()
+
+
 @router.callback_query(lambda c: c.data in {"game:dm", "game:team"})
 async def start_registration(callback: types.CallbackQuery, state: FSMContext):
     """Callback after user selects DM or Team mode from main menu."""
@@ -168,17 +192,33 @@ async def start_registration(callback: types.CallbackQuery, state: FSMContext):
     if mode == "team":
         team_data = await get_team(token, chat_username)
         if team_data is None:
-            await callback.message.answer(TextStatics.need_create_team_first())
+            await state.set_state(TeamGameStates.TEAM_CREATE_NAME)
+            create_team_message = await callback.message.answer(TextStatics.need_create_team_first())
+            await state.update_data(create_team_message_id=create_team_message.message_id)
+            await state.update_data(send_from_user_id=callback.from_user.id)
             return
 
     # Для командного режима проверим наличие плана на сегодня
-    from datetime import date
     if mode == "team":
-        plans = await list_plan_team_quizzes(date.today().isoformat())
+        plans = await list_plan_team_quizzes()
+        today_games_avaliable = get_today_games_avaliable(plans)
+        nearest_game_avaliavle = get_nearest_game_avaliable(plans)
+
         if not plans:
-            await callback.message.answer("📆 На сегодня нет запланированной викторины в режиме кооперации.")
+            await callback.message.answer("📆 Нет запланированной викторины в режиме кооперации на ближайшие дни.")
             return
-        quizzes = plans
+
+        if not today_games_avaliable and nearest_game_avaliavle:
+            # Преобразуем строку datetime в объект datetime и форматируем для России
+            scheduled_datetime = datetime.fromisoformat(nearest_game_avaliavle['scheduled_datetime'].replace('Z', '+00:00'))
+            formatted_datetime = scheduled_datetime.strftime("%d.%m.%Y %H:%M")
+            await callback.message.answer(f"📆 Ближайшая викторина в режиме кооперации: {nearest_game_avaliavle['quiz_name']} @ {formatted_datetime}")
+            return
+
+        if not today_games_avaliable:
+            return
+
+        quizzes = today_games_avaliable
     else:
         # Запрашиваем список квизов выбранного типа
         quizzes = await get_quiz_list(mode)

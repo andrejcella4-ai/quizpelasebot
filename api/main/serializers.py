@@ -57,7 +57,7 @@ class PlanTeamQuizSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = PlanTeamQuiz
-        fields = ('id', 'quiz', 'quiz_name', 'scheduled_date')
+        fields = ('id', 'quiz', 'quiz_name', 'scheduled_datetime')
 
 
 class TelegramPlayerUpdateSerializer(serializers.ModelSerializer):
