@@ -15,6 +15,7 @@ services:
     environment:
       - PYTHONPATH=/app
       - PYTHONUNBUFFERED=1
+    container_name: web
 
   bot:
     build:
@@ -26,3 +27,4 @@ services:
     env_file:
       - .env
     network_mode: host
+    container_name: bot
