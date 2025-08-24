@@ -61,19 +61,6 @@ class TextStatics:
         return text
 
     @staticmethod
-    def get_select_theme_text(mode: str) -> str:
-        if mode == GameModeChoices.solo:
-            theme = "🤖 Соло"
-        elif mode == GameModeChoices.team:
-            theme = "👥 Команда"
-        elif mode == GameModeChoices.dm:
-            theme = "👥 Кажд"
-        else:
-            pass
-
-    # ---- New helpers to ensure все тексты приходят отсюда ----
-
-    @staticmethod
     def game_already_running() -> str:
         return '🎮 В этом чате уже идет викторина.\nДля начала новой викторины сначала завершите текущую с помощью команды /stop'
 

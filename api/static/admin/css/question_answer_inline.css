@@ -1,0 +1,51 @@
+/* Стили для кастомного поведения чекбоксов ответов */
+/* Индикатор успешной загрузки CSS */
+body.change-form {
+    --custom-css-loaded: true;
+}
+
+/* Добавляем индикатор */
+.change-form::before {
+    content: "✓ Custom CSS loaded";
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    background: #28a745;
+    color: white;
+    padding: 5px 10px;
+    border-radius: 3px;
+    font-size: 12px;
+    z-index: 9999;
+    opacity: 0.7;
+}
+.field-is_right input[disabled] {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.field-is_right .help-text-auto {
+    color: #666;
+    font-size: 12px;
+    margin-top: 5px;
+    font-style: italic;
+    padding: 5px;
+    background-color: #f8f9fa;
+    border-left: 3px solid #007cba;
+    border-radius: 3px;
+}
+
+/* Подсветка первого ответа для текстовых вопросов */
+.inline-related.text-question-first-answer {
+    border-left: 3px solid #28a745;
+    padding-left: 10px;
+}
+
+/* Стили для неактивных ответов в текстовых вопросах */
+.inline-related.text-question-other-answer {
+    opacity: 0.7;
+    background-color: #f8f9fa;
+}
+
+.inline-related.text-question-other-answer .field-is_right {
+    opacity: 0.5;
+}

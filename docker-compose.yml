@@ -7,8 +7,7 @@ services:
     build:
       context: .
       dockerfile: api/Dockerfile
-    ports:
-      - "8000:8000"
+    network_mode: host
     volumes:
       - ./api:/app
     env_file:
@@ -27,8 +26,7 @@ services:
       - ./bot:/app
     env_file:
       - .env
-    networks:
-      - app-network
+    network_mode: host
 
 networks:
   app-network:

@@ -23,7 +23,6 @@ from main.views import (
 )
 
 
-
 router = DefaultRouter()
 router.register(r'teams', TeamViewSet, basename='team')
 
@@ -44,6 +43,7 @@ urlpatterns = [
     path('player/list/total-points/', PlayersTotalPointsView.as_view(), name='players-total-points'),
     path('team/leaderboard/', TeamLeaderboardView.as_view(), name='team-leaderboard'),
     path('player/notify-list/', PlayerNotifyListView.as_view(), name='player-notify-list'),
+
     path('', include(router.urls)),
 ]
 

@@ -7,6 +7,7 @@ __pycache__/
 venv/
 env/
 .env
+.env.*
 .venv/
 
 # IDE files
@@ -49,3 +50,5 @@ temp/
 dist/
 build/
 *.egg-info/
+
+.cursor/

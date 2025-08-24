@@ -22,10 +22,11 @@ class QuestionListSerializer(serializers.ModelSerializer):
     wrong_answers = serializers.SerializerMethodField()
     correct_answer = serializers.SerializerMethodField()
     time_to_answer = serializers.SerializerMethodField()
+    image_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Question
-        fields = ('id', 'text', 'question_type', 'wrong_answers', 'correct_answer', 'time_to_answer')
+        fields = ('id', 'text', 'question_type', 'wrong_answers', 'correct_answer', 'time_to_answer', 'image_url')
 
     def get_wrong_answers(self, obj):
         return list(obj.questionanswer_set.filter(is_right=False).values_list('text', flat=True))
@@ -41,6 +42,11 @@ class QuestionListSerializer(serializers.ModelSerializer):
             return int(value) if value is not None else None
         except Exception:
             return None
+
+    def get_image_url(self, obj):
+        if obj.image and hasattr(obj.image, 'url'):
+            return obj.image.url
+        return None
 
 
 class TeamSerializer(serializers.ModelSerializer):

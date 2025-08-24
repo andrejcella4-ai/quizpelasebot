@@ -17,7 +17,7 @@ from api_client import (
 )
 from keyboards import main_menu_keyboard, confirm_start_keyboard, create_variant_keyboard, private_menu_keyboard, question_result_keyboard, quiz_theme_keyboard, finish_quiz_keyboard
 from static.answer_texts import TextStatics
-from helpers import fetch_question_and_cancel
+from helpers import fetch_question_and_cancel, load_and_send_image
 from static.choices import QuestionTypeChoices
 
 from states.local_state import (
@@ -120,7 +120,9 @@ async def send_question(message: types.Message, state: FSMContext):
                 await message.bot.delete_message(message.chat.id, data['last_question_msg_id'])
             except Exception:
                 pass
-        sent = await message.answer(question_text, reply_markup=markup)
+        # Проверяем, есть ли изображение в вопросе
+        image_url = q.get("image_url")
+        sent = await load_and_send_image(message.bot, message.chat.id, image_url, question_text, reply_markup=markup)
         await state.update_data(last_question_msg_id=sent.message_id)
     else:
         # Сброс попыток для текстового вопроса в соло
@@ -130,7 +132,9 @@ async def send_question(message: types.Message, state: FSMContext):
                 await message.bot.delete_message(message.chat.id, data['last_question_msg_id'])
             except Exception:
                 pass
-        sent = await message.answer(question_text)
+        # Проверяем, есть ли изображение в вопросе
+        image_url = q.get("image_url")
+        sent = await load_and_send_image(message.bot, message.chat.id, image_url, question_text)
         await state.update_data(last_question_msg_id=sent.message_id)
 
     task = schedule_question_timeout_solo(time_limit, state, index, q, message, send_question)

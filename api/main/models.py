@@ -67,6 +67,7 @@ class Question(models.Model):
     difficulty = models.PositiveSmallIntegerField(default=1, verbose_name='Сложность') # from 1 to 5
     topics = models.ManyToManyField(Topic, related_name='questions', verbose_name='Темы')
     comment = models.TextField(blank=True, null=True, verbose_name='Комментарий')
+    image = models.ImageField(upload_to='questions/', blank=True, null=True, verbose_name='Изображение')
 
     likes = models.PositiveIntegerField(default=0, verbose_name='Лайки')
     dislikes = models.PositiveIntegerField(default=0, verbose_name='Дизлайки')
@@ -86,6 +87,23 @@ class QuestionAnswer(models.Model):
 
     def __str__(self):
         return self.text
+
+    def save(self, *args, **kwargs):
+        # Для текстовых вопросов автоматически устанавливаем правильность
+        if self.question and self.question.question_type == Question.QuestionTypeChoices.TEXT:
+            # Для текстовых вопросов первый ответ всегда правильный
+            existing_answers = QuestionAnswer.objects.filter(question=self.question)
+            if self.pk:
+                existing_answers = existing_answers.exclude(pk=self.pk)
+            
+            if existing_answers.count() == 0:
+                # Это первый ответ - делаем его правильным
+                self.is_right = True
+            else:
+                # Это не первый ответ - делаем его неправильным
+                self.is_right = False
+        
+        super().save(*args, **kwargs)
 
     class Meta:
         verbose_name = 'Ответ на вопрос'
@@ -140,3 +158,13 @@ class PlayerToken(models.Model):
     class Meta:
         verbose_name = 'Токен игрока'
         verbose_name_plural = 'Токены игроков'
+
+
+class BotText(models.Model):
+    text_name = models.CharField(max_length=255, unique=True, verbose_name='ID текста')
+    label = models.CharField(max_length=255, verbose_name='Название текста', null=True, blank=True)
+    description = models.TextField(verbose_name='Описание текста', null=True, blank=True)
+    unformatted_text = models.TextField(verbose_name='Текст')
+
+    def __str__(self):
+        return f"bot text: {self.text_name}"

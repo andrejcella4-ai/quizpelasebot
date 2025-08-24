@@ -1,6 +1,7 @@
 from __future__ import annotations
 import os
 import traceback
+from pathlib import Path
 
 import asyncio
 from datetime import datetime
@@ -15,6 +16,58 @@ from static.answer_texts import TextStatics
 from static.choices import QuestionTypeChoices
 from keyboards import create_variant_keyboard, question_result_keyboard, main_menu_keyboard
 from api_client import players_game_end_bulk, team_game_end, auth_player, create_team, get_players_total_points
+
+
+async def load_and_send_image(bot, chat_id: int, image_url: str, text: str, reply_markup=None):
+    """Загружает изображение с локального диска и отправляет его с текстом."""
+    if not image_url:
+        # Если нет изображения, отправляем только текст
+        return await bot.send_message(chat_id, text, reply_markup=reply_markup)
+    
+    try:
+        # Получаем директорию для медиа файлов из переменных окружения или используем по умолчанию
+        media_root = os.getenv('MEDIA_ROOT', '')
+        
+        # Если URL относительный (начинается с /media/), убираем префикс и добавляем MEDIA_ROOT
+        if image_url.startswith('/media/'):
+            # Убираем /media/ в начале
+            relative_path = image_url[7:]  # убираем '/media/'
+            if media_root:
+                file_path = Path(media_root) / relative_path
+            else:
+                # Если MEDIA_ROOT не задан, используем стандартный путь относительно проекта
+                # Определяем путь к корню проекта (поднимаемся из bot/ в корень)
+                project_root = Path(__file__).parent.parent
+                file_path = project_root / 'api' / 'media' / relative_path
+        else:
+            # Если путь уже полный, используем его как есть
+            file_path = Path(image_url)
+        
+        # Проверяем, что файл существует
+        if file_path.exists() and file_path.is_file():
+            # Читаем файл с диска
+            with open(file_path, 'rb') as image_file:
+                image_data = image_file.read()
+            
+            # Определяем имя файла
+            filename = file_path.name
+            
+            # Отправляем изображение с текстом как caption
+            return await bot.send_photo(
+                chat_id=chat_id,
+                photo=types.BufferedInputFile(image_data, filename=filename),
+                caption=text,
+                reply_markup=reply_markup
+            )
+        else:
+            print(f"Файл изображения не найден: {file_path}")
+            # Если файл не найден, отправляем только текст
+            return await bot.send_message(chat_id, text, reply_markup=reply_markup)
+            
+    except Exception as e:
+        print(f"Ошибка при чтении изображения {image_url}: {e}")
+        # В случае ошибки отправляем только текст
+        return await bot.send_message(chat_id, text, reply_markup=reply_markup)
 
 
 
@@ -120,7 +173,9 @@ async def send_next_question(bot, chat_id: int, game_state: GameState):
         await bot.delete_message(chat_id, game_state.current_question_msg_id)
 
     try:
-        sent_msg = await bot.send_message(chat_id, text, reply_markup=kb)
+        # Проверяем, есть ли изображение в вопросе
+        image_url = question.get("image_url")
+        sent_msg = await load_and_send_image(bot, chat_id, image_url, text, reply_markup=kb)
     except asyncio.CancelledError as e:
         print("send_next_question: CancelledError; state=", game_state.status, "q_idx=", game_state.current_q_idx)
         return
@@ -339,13 +394,9 @@ async def process_answer(bot, chat_id: int, game_state: GameState, username: str
 
     # Проверяем правильность ответа
     is_correct = False
-    if current_question["question_type"] == QuestionTypeChoices.VARIANT:
-        correct_answer = current_question["correct_answer"]
-        is_correct = answer == correct_answer
-    else:
-        # Для текстовых вопросов сравниваем с правильным ответом
-        correct_answer = current_question["correct_answer"].lower().strip()
-        is_correct = answer.lower().strip() == correct_answer
+
+    correct_answer = current_question["correct_answer"].lower().strip()
+    is_correct = answer.lower().strip() == correct_answer
 
     # Инициализируем попытки для пользователя/капитана (для TEXT вопросов)
     if current_question["question_type"] == QuestionTypeChoices.TEXT and username not in game_state.attempts_left_by_user:

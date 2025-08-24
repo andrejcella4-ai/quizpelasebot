@@ -23,7 +23,7 @@ class QuestionAnswerInline(admin.StackedInline):
 
 @admin.register(Question)
 class QuestionAdmin(admin.ModelAdmin):
-    list_display = ('id', 'text', 'question_type', 'difficulty')
+    list_display = ('id', 'text', 'question_type', 'difficulty', 'image')
     list_filter = ('question_type', 'difficulty')
     search_fields = ('text',)
 

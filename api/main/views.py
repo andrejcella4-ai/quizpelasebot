@@ -3,13 +3,11 @@ from rest_framework import viewsets
 from rest_framework.response import Response
 from rest_framework import status, permissions, serializers
 from django.utils import timezone
-from django.utils.timezone import now
 
-from datetime import timedelta, datetime
+from datetime import datetime
 import random
 import pytz
-
-from .models import TelegramPlayer, Quiz, PlayerToken, Team, PlanTeamQuiz
+from .models import TelegramPlayer, Quiz, PlayerToken, Team, PlanTeamQuiz, BotText
 from .serializers import (
     AuthPlayerSerializer, QuizInfoSerializer, QuestionListSerializer, TeamSerializer,
     PlanTeamQuizSerializer, TelegramPlayerUpdateSerializer, LeaderboardEntrySerializer,
@@ -291,3 +289,12 @@ class PlayerNotifyListView(APIView):
     def get(self, request):
         players = TelegramPlayer.objects.filter(notification_is_on=True).values('telegram_id', 'username')
         return Response(list(players))
+
+
+class AllBotTextsView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+    authentication_classes = [SystemTokenAuthentication]
+
+    def get(self, request):
+        texts = BotText.objects.all()
+        return Response(list(texts))
