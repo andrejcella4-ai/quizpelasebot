@@ -20,6 +20,8 @@ from main.views import (
     PlayerNotifyListView,
     PlayerTotalPointsView,
     PlayersTotalPointsView,
+    BotTextsDictView,
+    BotTextsBulkUpsertView,
 )
 
 
@@ -43,6 +45,8 @@ urlpatterns = [
     path('player/list/total-points/', PlayersTotalPointsView.as_view(), name='players-total-points'),
     path('team/leaderboard/', TeamLeaderboardView.as_view(), name='team-leaderboard'),
     path('player/notify-list/', PlayerNotifyListView.as_view(), name='player-notify-list'),
+    path('bot-texts/', BotTextsDictView.as_view(), name='bot-texts-dict'),
+    path('bot-texts/bulk-upsert/', BotTextsBulkUpsertView.as_view(), name='bot-texts-bulk-upsert'),
 
     path('', include(router.urls)),
 ]

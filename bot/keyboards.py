@@ -124,6 +124,13 @@ def team_registration_keyboard(team_name: str) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
+def skip_keyboard() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text='Пропустить', callback_data='team:skip_city')
+    builder.adjust(1)
+    return builder.as_markup()
+
+
 def notify_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text='🔕 Не напоминать', callback_data='notify:mute')

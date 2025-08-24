@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Quiz, Question, Team, TelegramPlayer, PlanTeamQuiz
+from .models import Quiz, Question, Team, TelegramPlayer, PlanTeamQuiz, BotText
 
 
 class AuthPlayerSerializer(serializers.Serializer):
@@ -51,10 +51,11 @@ class QuestionListSerializer(serializers.ModelSerializer):
 
 class TeamSerializer(serializers.ModelSerializer):
     captain_username = serializers.CharField(source='captain.username', read_only=True)
+    city_name = serializers.CharField(source='city.name', read_only=True)
 
     class Meta:
         model = Team
-        fields = ('id', 'name', 'chat_username', 'captain_username', 'total_scores')
+        fields = ('id', 'name', 'chat_username', 'captain_username', 'total_scores', 'city', 'city_name')
         read_only_fields = ('captain', 'captain_username', 'total_scores')
 
 
@@ -75,3 +76,44 @@ class TelegramPlayerUpdateSerializer(serializers.ModelSerializer):
 class LeaderboardEntrySerializer(serializers.Serializer):
     username = serializers.CharField()
     total_xp = serializers.IntegerField()
+
+
+class BotTextDictSerializer(serializers.ModelSerializer):
+    """Сериализатор, который возвращает данные в формате словаря с text_name как ключом."""
+
+    class Meta:
+        model = BotText
+        fields = ('id', 'text_name', 'label', 'description', 'unformatted_text')
+        list_serializer_class = 'BotTextDictListSerializer'
+    
+    def to_representation(self, instance):
+        # Получаем стандартное представление объекта
+        data = super().to_representation(instance)
+        
+        # Если это список объектов (many=True), преобразуем в словарь
+        if isinstance(self.parent, serializers.ListSerializer):
+            return data
+        
+        # Для одиночного объекта возвращаем словарь с text_name как ключом
+        text_name = data.pop('text_name')
+        return {text_name: data}
+
+
+class BotTextDictListSerializer(serializers.ListSerializer):
+    """Кастомный ListSerializer для преобразования списка в словарь."""
+    
+    def to_representation(self, data):
+        # Получаем список сериализованных объектов
+        items = super().to_representation(data)
+        
+        # Преобразуем список в словарь, используя text_name как ключ
+        result = {}
+        for item in items:
+            text_name = item.pop('text_name')
+            result[text_name] = item
+        
+        return result
+
+
+# Применяем кастомный ListSerializer к основному сериализатору
+BotTextDictSerializer.Meta.list_serializer_class = BotTextDictListSerializer

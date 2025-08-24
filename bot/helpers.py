@@ -702,7 +702,7 @@ def format_game_status(game_state, question_text: str | None = None) -> str:
 
 
 async def create_team_helper(
-    team_name: str, message: types.Message
+    team_name: str, message: types.Message, city: str | None = None
 ):
     # Auth player to get token
     token = await auth_player(
@@ -716,11 +716,12 @@ async def create_team_helper(
 
     chat_username = message.chat.username or str(message.chat.id)
     try:
-        await create_team(token, chat_username, team_name, message.from_user.id)
-        await message.answer(TextStatics.team_created_success(team_name), reply_markup=main_menu_keyboard())
+        await create_team(token, chat_username, team_name, message.from_user.id, city)
+        return True
     except Exception as e:
         print(e)
         await message.answer(TextStatics.team_create_error())
+        return False
 
 
 def get_today_games_avaliable(plans: list[dict]) -> list[dict]:

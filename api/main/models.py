@@ -4,11 +4,23 @@ import binascii
 import os
 
 
+class City(models.Model):
+    name = models.CharField(max_length=255, verbose_name='Название города')
+
+    def __str__(self):
+        return self.name
+
+    class Meta:
+        verbose_name = 'Город'
+        verbose_name_plural = 'Города'
+
+
 class Team(models.Model):
     name = models.CharField(max_length=255, verbose_name='Название команды')
     captain = models.ForeignKey('TelegramPlayer', on_delete=models.CASCADE, verbose_name='Капитан')
     chat_username = models.CharField(max_length=255, verbose_name='Telegram username чата', unique=True)
     total_scores = models.PositiveIntegerField(default=0, verbose_name='Общий счет')
+    city = models.ForeignKey(City, on_delete=models.CASCADE, verbose_name='Город', null=True, blank=True)
 
     def __str__(self):
         return self.name
@@ -168,3 +180,7 @@ class BotText(models.Model):
 
     def __str__(self):
         return f"bot text: {self.text_name}"
+
+    class Meta:
+        verbose_name = 'Текст бота'
+        verbose_name_plural = 'Тексты бота'

@@ -10,3 +10,4 @@ class SoloGameStates(StatesGroup):
 
 class TeamGameStates(StatesGroup):
     TEAM_CREATE_NAME = State()
+    TEAM_CHOOSE_CITY = State()

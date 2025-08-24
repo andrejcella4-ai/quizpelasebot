@@ -7,10 +7,11 @@ from django.utils import timezone
 from datetime import datetime
 import random
 import pytz
-from .models import TelegramPlayer, Quiz, PlayerToken, Team, PlanTeamQuiz, BotText
+from .models import TelegramPlayer, Quiz, PlayerToken, Team, PlanTeamQuiz, BotText, City
 from .serializers import (
     AuthPlayerSerializer, QuizInfoSerializer, QuestionListSerializer, TeamSerializer,
     PlanTeamQuizSerializer, TelegramPlayerUpdateSerializer, LeaderboardEntrySerializer,
+    BotTextDictSerializer
 )
 from .authentication import PlayerTokenAuthentication, SystemTokenAuthentication
 
@@ -103,21 +104,31 @@ class TeamViewSet(viewsets.ModelViewSet):
     def create(self, request, *args, **kwargs):
         # Получаем player_id из данных запроса
         player_id = request.data.get('player_id')
+        city_name = request.data.get('city')  # строка с названием города (опционально)
         
-        if player_id:
-            try:
-                telegram_user = TelegramPlayer.objects.get(telegram_id=player_id)
-                serializer = self.get_serializer(data=request.data)
-                serializer.is_valid(raise_exception=True)
-                serializer.save(captain=telegram_user)
-                return Response(serializer.data, status=status.HTTP_201_CREATED)
-            except TelegramPlayer.DoesNotExist:
-                return Response(
-                    {'error': f'Player with telegram_id {player_id} not found'}, 
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-        else:
+        if not player_id:
             raise serializers.ValidationError('player_id is required')
+
+        try:
+            telegram_user = TelegramPlayer.objects.get(telegram_id=player_id)
+        except TelegramPlayer.DoesNotExist:
+            return Response(
+                {'error': f'Player with telegram_id {player_id} not found'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        data = request.data.copy()
+        # Если передан city как название — попробуем найти City
+        if city_name:
+            city_obj = City.objects.filter(name__iexact=city_name.strip()).first()
+            if city_obj is None:
+                return Response({'detail': 'City not found'}, status=status.HTTP_404_NOT_FOUND)
+            data['city'] = city_obj.id
+        
+        serializer = self.get_serializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(captain=telegram_user)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
 class PlanTeamQuizListView(APIView):
@@ -291,10 +302,52 @@ class PlayerNotifyListView(APIView):
         return Response(list(players))
 
 
-class AllBotTextsView(APIView):
+class BotTextsDictView(APIView):
+    """Возвращает все BotText в формате словаря, где ключ - text_name, значение - объект."""
     permission_classes = [permissions.IsAuthenticated]
     authentication_classes = [SystemTokenAuthentication]
 
     def get(self, request):
-        texts = BotText.objects.all()
-        return Response(list(texts))
+        serializer = BotTextDictSerializer(BotText.objects.all(), many=True)
+        return Response(serializer.data)
+
+
+class BotTextsBulkUpsertView(APIView):
+    """Bulk upsert для BotText записей."""
+    permission_classes = [permissions.IsAuthenticated]
+    authentication_classes = [SystemTokenAuthentication]
+
+    def post(self, request):
+        texts = request.data.get('texts', [])
+        if not isinstance(texts, list):
+            return Response({'error': 'Expected "texts" to be a list'}, status=status.HTTP_400_BAD_REQUEST)
+
+        created_count = 0
+        updated_count = 0
+
+        for text_data in texts:
+            text_name = text_data.get('text_name')
+            if not text_name:
+                continue
+            
+            defaults = {
+                'label': text_data.get('label', ''),
+                'description': text_data.get('description', ''),
+                'unformatted_text': text_data.get('unformatted_text', ''),
+            }
+            
+            obj, created = BotText.objects.update_or_create(
+                text_name=text_name,
+                defaults=defaults
+            )
+            
+            if created:
+                created_count += 1
+            else:
+                updated_count += 1
+
+        return Response({
+            'created': created_count,
+            'updated': updated_count,
+            'total': created_count + updated_count
+        })

@@ -1,8 +1,12 @@
-from states.local_state import GameModeChoices
+import os
+
+from api_client import get_bot_texts
+
+
+_current_bot_texts = get_bot_texts(os.getenv('BOT_TOKEN'))
 
 
 class TextStatics:
-    game_started_answer = 'Игра уже начата. Сначала завершите теущую игру, овтетив на все вопросы или завершите её досрочно, командой /end_game\n\n'
 
     @staticmethod
     def get_single_game_answer(right_answers: int, wrong_answers: int) -> str:
@@ -16,10 +20,6 @@ class TextStatics:
             "👇 Что дальше?\n\n"
             "🎮 Для начала новой игры используйте команду /quiz"
         )
-
-    @staticmethod
-    def game_started_answer() -> str:
-        return 'Игра уже начата. Сначала завершите предыдущую игру командой /end_game'
 
     @staticmethod
     def get_start_menu() -> str:
@@ -43,24 +43,6 @@ class TextStatics:
         )
 
     @staticmethod
-    def get_question_result_text(wrong_answers: list[str], right_answers: list[str]) -> str:
-        text = f"""
-		⌛️ Время вышло!
-
-		✅ Правильный ответ: Закон Паскаля
-
-		📊 Ответы участников:
-
-        """
-
-        if wrong_answers:
-            text += f"❌ Неправильно ответили: {wrong_answers}\n"
-        if right_answers:
-            text += f"✅ Правильно ответили: {right_answers}\n"
-
-        return text
-
-    @staticmethod
     def game_already_running() -> str:
         return '🎮 В этом чате уже идет викторина.\nДля начала новой викторины сначала завершите текущую с помощью команды /stop'
 
@@ -72,36 +54,12 @@ class TextStatics:
         )
 
     @staticmethod
-    def need_team_name_hint() -> str:
-        return 'Укажите название команды после команды. Пример: /create_team МояКоманда'
-
-    @staticmethod
     def team_created_success(team_name: str) -> str:
         return f'Команда "{team_name}" успешно создана!\n'
 
     @staticmethod
-    def team_created_success_before_game(team_name: str) -> str:
-        return f'Команда "{team_name}" успешно создана!\nТеперь можете выбрать командный режим игры!'
-
-    @staticmethod
     def team_create_error() -> str:
         return 'Ошибка при создании команды!'
-
-    @staticmethod
-    def team_registration_start(team_name: str, seconds: int, captain_username: str) -> str:
-        return f"""
-🎮 Стартуем! "{team_name}" — поехали!\n
-📝 Как играть:\n
-• Обсуждаете вопрос всей командой\n
-• Капитан (@a_glinsky) сдаёт ваш ответ ответом на сообщение с вопросом или через команду /ответ ваш_ответ\n
-• Очки начисляются всей команде\n
-• 2 балла за правильный ответ с первой попытки и 1 балл — со второй\n
-Готовность {seconds} сек. ⏳ Удачи, команда! 🧠💪
-        """
-
-    @staticmethod
-    def team_game_starts() -> str:
-        return 'Командная игра начинается!'
 
     @staticmethod
     def outdated_question() -> str:
@@ -114,14 +72,6 @@ class TextStatics:
     @staticmethod
     def no_teams_cannot_start() -> str:
         return 'Игра не может начаться без команд!'
-
-    @staticmethod
-    def time_is_up_with_answer(right_answer: str) -> str:
-        return (
-            "⌛️ Время вышло!\n\n"
-            f"✅ Правильный ответ: {right_answer}\n\n"
-            "📊 Ответы участников:"
-        )
 
     @staticmethod
     def show_right_answer_only(right_answer: str) -> str:
@@ -152,10 +102,6 @@ class TextStatics:
     @staticmethod
     def no_participants_game_finished() -> str:
         return 'Игра окончена! Никто не участвовал.'
-
-    @staticmethod
-    def dm_quiz_finished_with_scores(lines: str) -> str:
-        return '🏆 Игра окончена!\n\n' + lines
 
     @staticmethod
     def dm_quiz_finished_full(
@@ -202,21 +148,6 @@ class TextStatics:
             return '❌ Неправильный ответ! Осталась 1 попытка'
         else:
             return f'❌ Неправильный ответ! Попыток больше нет.\n✅ Правильный ответ: {right_answer}\n\nПереходим к следующему вопросу...'
-
-    @staticmethod
-    def dm_registration_open(seconds: int, quiz_name: str) -> str:
-        return (
-            f'📝 Регистрация на игру ("{quiz_name}") открыта!\n\n'
-            f'⏳ До завершения регистрации: {seconds} сек.'
-        )
-
-    @staticmethod
-    def dm_registration_updated(players: list[str], seconds_left: int, quiz_name: str) -> str:
-        players_text = '\n'.join(f'— @{p}' for p in players) or '—'
-        return (
-            f'Регистрация на игру ("{quiz_name}"). Старт через {seconds_left} сек.\n\n'
-            f'Участники:\n{players_text}'
-        )
 
     @staticmethod
     def dm_registration_message(usernames: list[str], seconds_left: int) -> str:
@@ -266,10 +197,6 @@ class TextStatics:
     @staticmethod
     def time_left_10() -> str:
         return '⚠️ Осталось 10 секунд!'
-
-    @staticmethod
-    def please_choose_variant() -> str:
-        return 'Пожалуйста, выберите вариант ответа кнопкой ниже.'
 
     @staticmethod
     def no_active_game() -> str:

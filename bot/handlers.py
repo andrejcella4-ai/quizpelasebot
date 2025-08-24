@@ -292,42 +292,6 @@ async def confirm_start(callback: types.CallbackQuery, state: FSMContext):
     await send_question(callback.message, state)
 
 
-@router.message(Command('end_game'))
-async def end_game(message: types.Message, state: FSMContext):
-    # End current game: cancel timer, show results, clear state
-    data = await state.get_data()
-
-    task = data.get('timer_task')
-    if task:
-        task.cancel()
-
-    correct = data.get('correct', 0)
-    incorrect = data.get('incorrect', 0)
-    # Сначала отправим результат на backend, чтобы получить актуальный стрик
-    streak_suffix = ''
-    try:
-        system_token = os.getenv('BOT_SYSTEM_TOKEN') or os.getenv('BOT_TOKEN', '')
-        points = correct * 10
-        username = message.from_user.username or str(message.from_user.id)
-        res = await player_game_end(username, points, system_token)
-        streak = None
-        if isinstance(res, dict):
-            if 'streak' in res:
-                streak = res.get('streak')
-            else:
-                updated = res.get('updated') or []
-                if updated:
-                    streak = updated[0].get('streak')
-        if streak is not None:
-            streak_suffix = f"\n\n🔥 Ваш текущий стрик: {streak}\nПродолжайте играть каждый день, чтобы сохранить стрик! "
-    except Exception:
-        pass
-    # Отправляем финальный текст одним сообщением
-    await message.answer(TextStatics.get_single_game_answer(correct, incorrect) + streak_suffix)
-    # Clear FSM state to allow new games
-    await state.clear()
-
-
 @router.callback_query(SoloGameStates.WAITING_ANSWER, lambda c: c.data and c.data.startswith('answer:'))
 async def answer_callback(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
@@ -428,45 +392,45 @@ async def text_answer(message: types.Message, state: FSMContext):
             return
         user_answer = parts[1].strip()
 
-    if q['question_type'] == QuestionTypeChoices.TEXT:
-        # реализуем механику 2 попыток
-        attempts_left = data.get('attempts_left', 2)
-        if user_answer.lower().strip() == q['correct_answer'].lower().strip():
-            # Показать DM-формат результата для соло
+    if q['question_type'] != QuestionTypeChoices.TEXT:
+        return
+
+    # реализуем механику 2 попыток
+    attempts_left = data.get('attempts_left', 2)
+    if user_answer.lower().strip() == q['correct_answer'].lower().strip():
+        # Показать DM-формат результата для соло
+        username = message.from_user.username or str(message.from_user.id)
+        totals = {username: (data.get('correct', 0) + 1) * 10}
+        result_text = TextStatics.dm_quiz_question_result_message(
+            right_answer=q["correct_answer"],
+            not_answered=[],
+            wrong_answers=[],
+            right_answers=[username],
+            totals=totals,
+        )
+        await message.answer(result_text, reply_markup=question_result_keyboard())
+        await state.update_data(correct=data.get('correct', 0) + 1)
+        await state.update_data(current_index=index + 1)
+        await state.set_state(SoloGameStates.WAITING_NEXT)
+    else:
+        attempts_left -= 1
+        if attempts_left <= 0:
             username = message.from_user.username or str(message.from_user.id)
-            totals = {username: (data.get('correct', 0) + 1) * 10}
+            totals = {username: (data.get('correct', 0)) * 10}
             result_text = TextStatics.dm_quiz_question_result_message(
                 right_answer=q["correct_answer"],
                 not_answered=[],
-                wrong_answers=[],
-                right_answers=[username],
+                wrong_answers=[username],
+                right_answers=[],
                 totals=totals,
             )
             await message.answer(result_text, reply_markup=question_result_keyboard())
-            await state.update_data(correct=data.get('correct', 0) + 1)
-            await state.update_data(current_index=index + 1)
-            await state.set_state(SoloGameStates.WAITING_NEXT)
+            await state.update_data(incorrect=data.get('incorrect', 0) + 1, current_index=index + 1)
+            # Автопереход к следующему вопросу без ожидания кнопки
+            await send_question(message, state)
         else:
-            attempts_left -= 1
-            if attempts_left <= 0:
-                username = message.from_user.username or str(message.from_user.id)
-                totals = {username: (data.get('correct', 0)) * 10}
-                result_text = TextStatics.dm_quiz_question_result_message(
-                    right_answer=q["correct_answer"],
-                    not_answered=[],
-                    wrong_answers=[username],
-                    right_answers=[],
-                    totals=totals,
-                )
-                await message.answer(result_text, reply_markup=question_result_keyboard())
-                await state.update_data(incorrect=data.get('incorrect', 0) + 1, current_index=index + 1)
-                # Автопереход к следующему вопросу без ожидания кнопки
-                await send_question(message, state)
-            else:
-                await state.update_data(attempts_left=attempts_left)
-                await message.answer(TextStatics.dm_text_wrong_attempt(attempts_left, q["correct_answer"]))
-    else:
-        await message.answer(TextStatics.please_choose_variant())
+            await state.update_data(attempts_left=attempts_left)
+            await message.answer(TextStatics.dm_text_wrong_attempt(attempts_left, q["correct_answer"]))
 
 
 @router.callback_query(lambda c: c.data == 'next_question' and c.message.chat.type == 'private')

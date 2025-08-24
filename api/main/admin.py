@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import TelegramPlayer, Topic, Question, QuestionAnswer, Quiz, Team, PlanTeamQuiz, PlayerToken
+from .models import TelegramPlayer, Topic, Question, QuestionAnswer, Quiz, Team, PlanTeamQuiz, PlayerToken, BotText
 
 
 @admin.register(TelegramPlayer)
@@ -60,3 +60,9 @@ class TeamAdmin(admin.ModelAdmin):
 class PlanTeamQuizAdmin(admin.ModelAdmin):
     list_display = ('id', 'quiz', 'scheduled_datetime', 'created_at')
     list_filter = ('scheduled_datetime',)
+
+
+@admin.register(BotText)
+class BotTextAdmin(admin.ModelAdmin):
+    list_display = ('id', 'text_name', 'label', 'description', 'unformatted_text')
+    search_fields = ('text_name',)

@@ -16,6 +16,7 @@ from keyboards import (
     quiz_theme_keyboard,
     team_registration_keyboard,
     team_plans_keyboard,
+    skip_keyboard,
 )
 
 from helpers import (
@@ -43,26 +44,6 @@ from states.fsm import TeamGameStates
 
 
 router = Router(name="team_handlers")
-
-
-# --------------------------------------------------------
-# End game command (admin or any user)
-# --------------------------------------------------------
-
-@router.message(Command("end_game"))
-async def manual_end_game(message: types.Message):
-    game_key = _get_game_key_for_chat(message.chat.id)
-    if not game_key:
-        await message.answer(TextStatics.no_active_game())
-        return
-
-    game_state = get_game_state(game_key)
-    
-    # Отменяем таймеры
-    if game_state.timer_task:
-        game_state.timer_task.cancel()
-    # Унифицированное завершение игры
-    await finalize_game(message.bot, message.chat.id, game_state)
 
 
 @router.message(Command("stop"))
@@ -113,35 +94,6 @@ async def show_game_status(message: types.Message):
     await message.answer(text)
 
 
-@router.message(Command("create_team"))
-async def create_team_command(message: types.Message, state: FSMContext):
-    """Create a team for this chat."""
-    # Expect /create_team <team name>
-    parts = message.text.split(maxsplit=1)
-    if len(parts) < 2:
-        await message.answer(TextStatics.need_team_name_hint())
-        return
-    team_name = parts[1].strip()
-
-    # Auth player to get token
-    token = await auth_player(
-        telegram_id=message.from_user.id,
-        first_name=message.from_user.first_name,
-        last_name=message.from_user.last_name or "",
-        username=message.from_user.username,
-        phone=None,
-        lang_code=message.from_user.language_code,
-    )
-
-    chat_username = message.chat.username or str(message.chat.id)
-    try:
-        await create_team(token, chat_username, team_name, message.from_user.id)
-        await message.answer(TextStatics.team_created_success(team_name))
-    except Exception as e:
-        print(e)
-        await message.answer(TextStatics.team_create_error())
-
-
 @router.message(TeamGameStates.TEAM_CREATE_NAME)
 async def create_team_name(message: types.Message, state: FSMContext):
     create_team_message_id = (await state.get_data()).get("create_team_message_id")
@@ -157,9 +109,42 @@ async def create_team_name(message: types.Message, state: FSMContext):
 
         await message.bot.delete_message(message.chat.id, create_team_message_id)
 
-        await create_team_helper(message.text.strip(), message)
+        await message.answer("Укажите город вашей команды или нажмите Пропустить", reply_markup=skip_keyboard())
 
+        await state.update_data(team_name=message.text.strip())
+        await state.set_state(TeamGameStates.TEAM_CHOOSE_CITY)
+
+
+@router.message(TeamGameStates.TEAM_CHOOSE_CITY)
+async def choose_city(message: types.Message, state: FSMContext):
+    await state.set_state(TeamGameStates.TEAM_CHOOSE_CITY)
+    city = (message.text or "").strip()
+    data = await state.get_data()
+    team_name = data.get('team_name')
+    if not team_name:
+        return
+    created = await create_team_helper(team_name, message, city)
+    if created:
+        await message.answer(TextStatics.team_created_success(team_name), reply_markup=main_menu_keyboard())
         await state.clear()
+    else:
+        # Ошибка может быть из-за города. Предложим повторить или пропустить
+        await message.answer("Город не найден. Введите другой город или нажмите Пропустить", reply_markup=skip_keyboard())
+
+
+@router.callback_query(lambda c: c.data == 'team:skip_city')
+async def skip_city(callback: types.CallbackQuery, state: FSMContext):
+    await callback.answer()
+    data = await state.get_data()
+    team_name = data.get('team_name')
+    if not team_name:
+        return
+    ok = await create_team_helper(team_name, callback.message, city=None)
+    if ok:
+        await callback.message.answer(TextStatics.team_created_success(team_name), reply_markup=main_menu_keyboard())
+        await state.clear()
+    else:
+        await callback.message.answer(TextStatics.team_create_error())
 
 
 @router.callback_query(lambda c: c.data in {"game:dm", "game:team"})

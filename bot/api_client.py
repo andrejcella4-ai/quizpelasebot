@@ -114,11 +114,12 @@ async def get_quiz_list(quiz_type: str) -> List[Dict]:
 
 # --- Team -----------------------------------------------------------
 
-async def create_team(token: str, chat_username: str, name: str, player_id: int) -> dict:
+async def create_team(token: str, chat_username: str, name: str, player_id: int, city: str | None = None) -> dict:
     """Create a team and return its JSON representation."""
     headers = {'Authorization': f'Token {token}'}
     payload = {
         'name': name,
+        'city': city,
         'chat_username': chat_username,
         'player_id': player_id,
     }
@@ -145,5 +146,13 @@ async def get_players_total_points(usernames: list[str], system_token: str) -> l
     payload = {'usernames': usernames}
     async with aiohttp.ClientSession(headers=headers) as session:
         async with session.post(f'{BASE_URL}/player/list/total-points/', json=payload) as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+
+async def get_bot_texts(system_token: str) -> dict:
+    headers = {'Authorization': f'Token {system_token}'}
+    async with aiohttp.ClientSession(headers=headers) as session:
+        async with session.get(f'{BASE_URL}/bot-texts/') as resp:
             resp.raise_for_status()
             return await resp.json()
