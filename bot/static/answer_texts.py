@@ -1,8 +1,10 @@
 import os
+import time
 
 from api_client import get_bot_texts
 
 
+time.sleep(5)
 _current_bot_texts = {list(item.keys())[0]: list(item.values())[0] for item in get_bot_texts(os.getenv('BOT_TOKEN'))}
 
 
