@@ -98,36 +98,10 @@ class BotTextDictSerializer(serializers.ModelSerializer):
     class Meta:
         model = BotText
         fields = ('id', 'text_name', 'label', 'description', 'unformatted_text')
-        list_serializer_class = 'BotTextDictListSerializer'
-    
+
     def to_representation(self, instance):
-        # Получаем стандартное представление объекта
         data = super().to_representation(instance)
-        
-        # Если это список объектов (many=True), преобразуем в словарь
-        if isinstance(self.parent, serializers.ListSerializer):
+        if data.get('text_name') is None:
             return data
-        
-        # Для одиночного объекта возвращаем словарь с text_name как ключом
         text_name = data.pop('text_name')
         return {text_name: data}
-
-
-class BotTextDictListSerializer(serializers.ListSerializer):
-    """Кастомный ListSerializer для преобразования списка в словарь."""
-    
-    def to_representation(self, data):
-        # Получаем список сериализованных объектов
-        items = super().to_representation(data)
-        
-        # Преобразуем список в словарь, используя text_name как ключ
-        result = {}
-        for item in items:
-            text_name = item.pop('text_name')
-            result[text_name] = item
-        
-        return result
-
-
-# Применяем кастомный ListSerializer к основному сериализатору
-BotTextDictSerializer.Meta.list_serializer_class = BotTextDictListSerializer

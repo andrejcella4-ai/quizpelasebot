@@ -15,9 +15,10 @@ from api_client import (
     player_leaderboard,
     player_update_notifications,
     get_rotated_questions_solo,
+    get_bot_texts,
 )
 from keyboards import main_menu_keyboard, confirm_start_keyboard, create_variant_keyboard, private_menu_keyboard, question_result_keyboard, quiz_theme_keyboard, finish_quiz_keyboard
-from static.answer_texts import TextStatics
+from static.answer_texts import TextStatics, _current_bot_texts
 from helpers import fetch_question_and_cancel, load_and_send_image
 from static.choices import QuestionTypeChoices
 
@@ -476,3 +477,10 @@ async def notify_mute(callback: types.CallbackQuery):
 @router.message(Command('help'))
 async def help_command(message: types.Message):
     await message.answer(TextStatics.get_help_message())
+
+
+@router.message(Command('update_texts'))
+async def update_texts(message: types.Message):
+    global _current_bot_texts
+    _current_bot_texts = {list(item.keys())[0]: list(item.values())[0] for item in get_bot_texts(os.getenv('BOT_TOKEN'))}
+    await message.answer("Тексты обновлены")

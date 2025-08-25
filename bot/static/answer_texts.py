@@ -3,7 +3,7 @@ import os
 from api_client import get_bot_texts
 
 
-_current_bot_texts = get_bot_texts(os.getenv('BOT_TOKEN'))
+_current_bot_texts = {list(item.keys())[0]: list(item.values())[0] for item in get_bot_texts(os.getenv('BOT_TOKEN'))}
 
 
 def _t(key: str, default: str, **params) -> str:

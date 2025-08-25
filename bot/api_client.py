@@ -1,6 +1,8 @@
 import os
 import aiohttp
 from typing import Optional, Dict, List
+import requests
+
 
 BASE_URL = os.getenv('API_URL', 'http://localhost:8000')
 
@@ -158,12 +160,12 @@ async def get_players_total_points(usernames: list[str], system_token: str) -> l
             return await resp.json()
 
 
-async def get_bot_texts(system_token: str) -> dict:
+def get_bot_texts(system_token: str) -> dict:
     headers = {'Authorization': f'Token {system_token}'}
-    async with aiohttp.ClientSession(headers=headers) as session:
-        async with session.get(f'{BASE_URL}/bot-texts/') as resp:
-            resp.raise_for_status()
-            return await resp.json()
+    response = requests.get(f'{BASE_URL}/bot-texts/', headers=headers)
+    response.raise_for_status()
+
+    return response.json()
 
 
 async def get_rotated_questions_solo(system_token: str, telegram_id: int, size: int, time_to_answer: int = 10) -> dict:
