@@ -50,7 +50,8 @@ async def upload_texts(json_file_path: str):
     # Получаем настройки из переменных окружения
     api_url = os.getenv('API_URL', 'https://quizbotadmin.ru')
     system_token = os.getenv('BOT_SYSTEM_TOKEN') or os.getenv('BOT_TOKEN')
-    
+    print(api_url)
+
     if not system_token:
         print("Ошибка: не задан BOT_SYSTEM_TOKEN или BOT_TOKEN")
         return False
