@@ -28,7 +28,9 @@ async def load_and_send_image(bot, chat_id: int, image_url: str, text: str, repl
         # Получаем директорию для медиа файлов из переменных окружения или используем по умолчанию
         media_root = os.getenv('MEDIA_ROOT', '')
 
-        file_path = Path(media_root) / image_url
+        # Убираем ведущий слэш из image_url, если он есть, чтобы Path правильно объединил пути
+        clean_image_url = image_url.lstrip('/')
+        file_path = Path(media_root) / clean_image_url
 
         # Проверяем, что файл существует
         if file_path.exists() and file_path.is_file():
