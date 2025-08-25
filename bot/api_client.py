@@ -76,6 +76,14 @@ async def player_leaderboard(token: str) -> dict:
             return await resp.json()
 
 
+async def team_leaderboard(token: str, chat_username: str) -> dict:
+    headers = {'Authorization': f'Token {token}'}
+    async with aiohttp.ClientSession(headers=headers) as session:
+        async with session.get(f'{BASE_URL}/team/leaderboard/{chat_username}/') as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+
 async def get_notify_list() -> list[dict]:
     async with aiohttp.ClientSession() as session:
         async with session.get(f'{BASE_URL}/player/notify-list/') as resp:

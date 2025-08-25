@@ -71,11 +71,19 @@ class Topic(models.Model):
 class Question(models.Model):
 
     class QuestionTypeChoices(models.TextChoices):
-        TEXT = 'text', 'Text'
-        VARIANT = 'variant', 'Variant'
+        TEXT = 'text', 'Текстовый'
+        VARIANT = 'variant', 'Варианты'
+
+    class QuestionUseTypeChoices(models.TextChoices):
+        DM = 'dm', 'Соревновательный'
+        SOLO = 'solo', 'Соло'
+
+    class QuestionStatusChoices(models.TextChoices):
+        UNUSED = 'unused', 'Не использован'
+        USED = 'used', 'Использован'
+        INACTIVE = 'inactive', 'Неактивный'
 
     text = models.TextField(verbose_name='Текст вопроса')
-    question_type = models.CharField(max_length=255, choices=QuestionTypeChoices.choices, verbose_name='Тип вопроса')
     difficulty = models.PositiveSmallIntegerField(default=1, verbose_name='Сложность') # from 1 to 5
     topics = models.ManyToManyField(Topic, related_name='questions', verbose_name='Темы')
     comment = models.TextField(blank=True, null=True, verbose_name='Комментарий')
@@ -83,6 +91,24 @@ class Question(models.Model):
 
     likes = models.PositiveIntegerField(default=0, verbose_name='Лайки')
     dislikes = models.PositiveIntegerField(default=0, verbose_name='Дизлайки')
+
+    question_type = models.CharField(max_length=255, choices=QuestionTypeChoices.choices, verbose_name='Тип вопроса')
+
+    # fields only for dm and solo games
+    game_use_type = models.CharField(
+        max_length=255,
+        choices=QuestionUseTypeChoices.choices,
+        verbose_name='Тип игры для вопроса',
+        blank=True,
+        null=True,
+    )
+    status = models.CharField(
+        max_length=255,
+        choices=QuestionStatusChoices.choices,
+        verbose_name='Статус вопроса',
+        blank=True,
+        null=True,
+    )
 
     def __str__(self):
         return self.text

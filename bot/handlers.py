@@ -82,7 +82,7 @@ async def send_question(message: types.Message, state: FSMContext):
         streak_suffix = ''
         try:
             system_token = os.getenv('BOT_SYSTEM_TOKEN') or os.getenv('BOT_TOKEN', '')
-            points = correct * 10
+            points = correct
             username = message.from_user.username or str(message.from_user.id)
             res = await player_game_end(username, points, system_token)
             streak = None
@@ -149,8 +149,8 @@ async def start_command(message: types.Message, state: FSMContext):
     await message.answer(TextStatics.get_start_message(username))
 
 
-@router.message(Command('leaderboard'))
-async def leaderboard_command(message: types.Message):
+@router.message(Command('stats'))
+async def stats_command(message: types.Message):
     token = await auth_player(
         telegram_id=message.from_user.id,
         first_name=message.from_user.first_name,
@@ -311,7 +311,7 @@ async def answer_callback(callback: types.CallbackQuery, state: FSMContext):
     username = callback.from_user.username or str(callback.from_user.id)
     if is_correct:
         # Формат результата как в DM, с указанием текущих баллов игрока
-        totals = {username: (data.get('correct', 0) + 1) * 10}
+        totals = {username: (data.get('correct', 0) + 1)}
         result_text = TextStatics.dm_quiz_question_result_message(
             right_answer=q["correct_answer"],
             not_answered=[],
@@ -322,7 +322,7 @@ async def answer_callback(callback: types.CallbackQuery, state: FSMContext):
         await callback.message.answer(result_text, reply_markup=question_result_keyboard())
         await state.update_data(correct=data.get('correct', 0) + 1)
     else:
-        totals = {username: (data.get('correct', 0)) * 10}
+        totals = {username: (data.get('correct', 0))}
         result_text = TextStatics.dm_quiz_question_result_message(
             right_answer=q["correct_answer"],
             not_answered=[],
@@ -351,7 +351,7 @@ async def finish_quiz_now(callback: types.CallbackQuery, state: FSMContext):
     streak_suffix = ''
     try:
         system_token = os.getenv('BOT_SYSTEM_TOKEN') or os.getenv('BOT_TOKEN', '')
-        points = correct * 10
+        points = correct
         username = callback.from_user.username or str(callback.from_user.id)
         res = await player_game_end(username, points, system_token)
         streak = None
@@ -400,7 +400,7 @@ async def text_answer(message: types.Message, state: FSMContext):
     if user_answer.lower().strip() == q['correct_answer'].lower().strip():
         # Показать DM-формат результата для соло
         username = message.from_user.username or str(message.from_user.id)
-        totals = {username: (data.get('correct', 0) + 1) * 10}
+        totals = {username: (data.get('correct', 0) + 1)}
         result_text = TextStatics.dm_quiz_question_result_message(
             right_answer=q["correct_answer"],
             not_answered=[],
@@ -416,7 +416,7 @@ async def text_answer(message: types.Message, state: FSMContext):
         attempts_left -= 1
         if attempts_left <= 0:
             username = message.from_user.username or str(message.from_user.id)
-            totals = {username: (data.get('correct', 0)) * 10}
+            totals = {username: (data.get('correct', 0))}
             result_text = TextStatics.dm_quiz_question_result_message(
                 right_answer=q["correct_answer"],
                 not_answered=[],
@@ -473,3 +473,8 @@ async def notify_mute(callback: types.CallbackQuery):
         await callback.message.answer('🔕 Уведомления отключены.')
     except Exception:
         await callback.message.answer('Не удалось отключить уведомления. Попробуйте позже.')
+
+
+@router.message(Command('help'))
+async def help_command(message: types.Message):
+    await message.answer(TextStatics.get_help_message())

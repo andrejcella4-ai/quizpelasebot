@@ -121,6 +121,7 @@ async def init_webhook():
 async def start_polling():
     """Запуск в режиме polling (для разработки)"""
     logging.info("Запуск бота в режиме polling...")
+    await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
 

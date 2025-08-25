@@ -1,6 +1,17 @@
 from django.contrib import admin
 
-from .models import TelegramPlayer, Topic, Question, QuestionAnswer, Quiz, Team, PlanTeamQuiz, PlayerToken, BotText
+from .models import (
+    TelegramPlayer,
+    Topic,
+    Question,
+    QuestionAnswer,
+    Quiz,
+    Team,
+    PlanTeamQuiz,
+    PlayerToken,
+    BotText,
+    City
+)
 
 
 @admin.register(TelegramPlayer)
@@ -23,8 +34,8 @@ class QuestionAnswerInline(admin.StackedInline):
 
 @admin.register(Question)
 class QuestionAdmin(admin.ModelAdmin):
-    list_display = ('id', 'text', 'question_type', 'difficulty', 'image')
-    list_filter = ('question_type', 'difficulty')
+    list_display = ('id', 'text', 'question_type', 'difficulty', 'game_use_type', 'image')
+    list_filter = ('question_type', 'difficulty', 'game_use_type')
     search_fields = ('text',)
 
     inlines = [QuestionAnswerInline]
@@ -52,7 +63,7 @@ class PlayerTokenAdmin(admin.ModelAdmin):
 
 @admin.register(Team)
 class TeamAdmin(admin.ModelAdmin):
-    list_display = ('id', 'name', 'captain', 'total_scores')
+    list_display = ('id', 'name', 'city', 'captain', 'total_scores')
     search_fields = ('name',)
 
 
@@ -66,3 +77,9 @@ class PlanTeamQuizAdmin(admin.ModelAdmin):
 class BotTextAdmin(admin.ModelAdmin):
     list_display = ('id', 'text_name', 'label', 'description', 'unformatted_text')
     search_fields = ('text_name',)
+
+
+@admin.register(City)
+class CityAdmin(admin.ModelAdmin):
+    list_display = ('id', 'name')
+    search_fields = ('name',)

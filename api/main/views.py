@@ -11,7 +11,7 @@ from .models import TelegramPlayer, Quiz, PlayerToken, Team, PlanTeamQuiz, BotTe
 from .serializers import (
     AuthPlayerSerializer, QuizInfoSerializer, QuestionListSerializer, TeamSerializer,
     PlanTeamQuizSerializer, TelegramPlayerUpdateSerializer, LeaderboardEntrySerializer,
-    BotTextDictSerializer
+    BotTextDictSerializer, TeamLeaderboardEntrySerializer
 )
 from .authentication import PlayerTokenAuthentication, SystemTokenAuthentication
 
@@ -250,7 +250,7 @@ class PlayerUpdateView(APIView):
 class PlayerLeaderboardView(APIView):
     def get(self, request):
         qs = TelegramPlayer.objects.order_by('-total_xp')
-        top = list(qs[:50])
+        top = list(qs[:10])
         data = [{'username': p.username or str(p.telegram_id), 'total_xp': p.total_xp} for p in top]
         serializer = LeaderboardEntrySerializer(data, many=True)
         # Позиция текущего пользователя, если аутентифицирован
@@ -272,11 +272,34 @@ class PlayerLeaderboardView(APIView):
 
 
 class TeamLeaderboardView(APIView):
-    def get(self, request):
-        teams = Team.objects.order_by('-total_scores')[:50]
-        data = [{'username': t.name, 'total_xp': t.total_scores} for t in teams]
-        serializer = LeaderboardEntrySerializer(data, many=True)
-        return Response(serializer.data)
+    permission_classes = [permissions.IsAuthenticated]
+    authentication_classes = [PlayerTokenAuthentication]
+
+    def get(self, request, chat_username):
+        qs = Team.objects.order_by('-total_scores')
+        top = list(qs[:10])
+        data = [{'username': t.name, 'total_scores': t.total_scores} for t in top]
+        serializer = TeamLeaderboardEntrySerializer(data, many=True)
+
+        # Информация о текущей команде
+        current = None
+        try:
+            current_team = Team.objects.get(chat_username=chat_username)
+            # Найдем позицию команды в общем рейтинге
+            ordered_ids = list(qs.values_list('id', flat=True))
+            try:
+                pos = ordered_ids.index(current_team.id) + 1
+            except ValueError:
+                pos = None
+            current = {
+                'position': pos,
+                'total': qs.count(),
+                'total_scores': current_team.total_scores,
+            }
+        except Team.DoesNotExist:
+            pass
+        
+        return Response({'entries': serializer.data, 'current': current})
 
 
 class TeamByChatView(APIView):

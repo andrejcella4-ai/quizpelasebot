@@ -1,20 +1,18 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta
 
 from aiogram import Router, types
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.filters import Command
 
-from api_client import get_quiz_info, get_questions, auth_player, create_team, get_team, get_quiz_list, team_game_end, list_plan_team_quizzes
+from api_client import get_quiz_info, get_questions, auth_player, get_team, get_quiz_list, list_plan_team_quizzes, team_leaderboard
 from keyboards import (
     main_menu_keyboard,
     registration_dm_keyboard,
-    create_variant_keyboard,
     quiz_theme_keyboard,
-    team_registration_keyboard,
     team_plans_keyboard,
     skip_keyboard,
 )
@@ -24,12 +22,10 @@ from helpers import (
     process_answer,
     format_game_status,
     schedule_registration_end,
-    move_to_next_question,
-    show_final_results,
-    finalize_game,
     create_team_helper,
     get_today_games_avaliable,
     get_nearest_game_avaliable,
+    question_transition_delay,
 )
 from states.local_state import (
     get_game_state,
@@ -104,32 +100,42 @@ async def create_team_name(message: types.Message, state: FSMContext):
 
     if create_team_message_id == message.reply_to_message.message_id and send_from_user_id == message.from_user.id:
         if not message.text.strip():
-            await message.answer(TextStatics.no_text_in_team_name())
             return
 
         await message.bot.delete_message(message.chat.id, create_team_message_id)
 
-        await message.answer("Укажите город вашей команды или нажмите Пропустить", reply_markup=skip_keyboard())
+        sent = await message.answer(TextStatics.need_choose_city(), reply_markup=skip_keyboard())
 
+        await state.update_data(choose_city_message_id=sent.message_id)
         await state.update_data(team_name=message.text.strip())
         await state.set_state(TeamGameStates.TEAM_CHOOSE_CITY)
 
 
 @router.message(TeamGameStates.TEAM_CHOOSE_CITY)
 async def choose_city(message: types.Message, state: FSMContext):
-    await state.set_state(TeamGameStates.TEAM_CHOOSE_CITY)
     city = (message.text or "").strip()
+
     data = await state.get_data()
     team_name = data.get('team_name')
-    if not team_name:
+    choose_city_message_id = data.get('choose_city_message_id')
+    send_from_user_id = data.get('send_from_user_id')
+
+    if (
+        not team_name
+        or not message.reply_to_message
+        or choose_city_message_id != message.reply_to_message.message_id
+        or send_from_user_id != message.from_user.id
+    ):
         return
-    created = await create_team_helper(team_name, message, city)
+
+    created = await create_team_helper(team_name, message, message.from_user, city)
     if created:
+        await message.bot.delete_message(message.chat.id, choose_city_message_id)
         await message.answer(TextStatics.team_created_success(team_name), reply_markup=main_menu_keyboard())
         await state.clear()
     else:
         # Ошибка может быть из-за города. Предложим повторить или пропустить
-        await message.answer("Город не найден. Введите другой город или нажмите Пропустить", reply_markup=skip_keyboard())
+        await message.answer(TextStatics.city_not_found(message.from_user.username or str(message.from_user.first_name)), reply_markup=skip_keyboard())
 
 
 @router.callback_query(lambda c: c.data == 'team:skip_city')
@@ -137,9 +143,12 @@ async def skip_city(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
     data = await state.get_data()
     team_name = data.get('team_name')
-    if not team_name:
+    send_from_user_id = data.get('send_from_user_id')
+
+    if not team_name or send_from_user_id != callback.from_user.id:
         return
-    ok = await create_team_helper(team_name, callback.message, city=None)
+
+    ok = await create_team_helper(team_name, callback.message, callback.from_user, city=None)
     if ok:
         await callback.message.answer(TextStatics.team_created_success(team_name), reply_markup=main_menu_keyboard())
         await state.clear()
@@ -698,9 +707,9 @@ async def next_question_dm_team(callback: types.CallbackQuery):
 
         # ВНУТРИ ЛОКА, НЕ КАК ЗАДАЧА!
         try:
-            await move_to_next_question(callback.message.bot, callback.message.chat.id, game_state)
-        finally:
-            game_state.next_in_progress = False
+            asyncio.create_task(question_transition_delay(callback.message.bot, callback.message.chat.id, game_state))
+        except Exception as e:
+            print(f"Оибка при переходе к следующему вопросу: {e}")
 
 
 # --- Отмена игры кнопкой ---
@@ -742,3 +751,38 @@ async def finish_quiz_group(callback: types.CallbackQuery):
     # Унифицированное завершение игры
     from helpers import finalize_game
     await finalize_game(callback.message.bot, callback.message.chat.id, game_state)
+
+
+@router.message(Command('leaderboard'))
+async def leaderboard_command(message: types.Message):
+    """Показать командный рейтинг (только в групповых чатах)"""
+    # Проверяем, что команда вызвана в групповом чате
+    if message.chat.type == 'private':
+        await message.answer(TextStatics.leaderboard_private_chat_error())
+        return
+
+    # Получаем chat_username
+    chat_username = message.chat.username or str(message.chat.id)
+
+    try:
+        # Авторизуем пользователя для получения токена
+        token = await auth_player(
+            telegram_id=message.from_user.id,
+            first_name=message.from_user.first_name,
+            last_name=message.from_user.last_name,
+            username=message.from_user.username,
+            lang_code=message.from_user.language_code,
+        )
+
+        # Получаем данные рейтинга
+        data = await team_leaderboard(token, chat_username)
+        entries = data.get('entries', [])
+        current = data.get('current')
+
+        # Формируем текст через TextStatics
+        leaderboard_text = TextStatics.leaderboard_message(entries, current)
+        await message.answer(leaderboard_text)
+
+    except Exception as e:
+        print(f"Ошибка при получении командного рейтинга: {e}")
+        await message.answer(TextStatics.leaderboard_api_error())

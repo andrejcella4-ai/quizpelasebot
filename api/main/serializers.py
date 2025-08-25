@@ -26,7 +26,16 @@ class QuestionListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Question
-        fields = ('id', 'text', 'question_type', 'wrong_answers', 'correct_answer', 'time_to_answer', 'image_url')
+        fields = (
+            'id',
+            'text',
+            'question_type',
+            'game_use_type',
+            'wrong_answers',
+            'correct_answer',
+            'time_to_answer',
+            'image_url'
+        )
 
     def get_wrong_answers(self, obj):
         return list(obj.questionanswer_set.filter(is_right=False).values_list('text', flat=True))
@@ -76,6 +85,11 @@ class TelegramPlayerUpdateSerializer(serializers.ModelSerializer):
 class LeaderboardEntrySerializer(serializers.Serializer):
     username = serializers.CharField()
     total_xp = serializers.IntegerField()
+
+
+class TeamLeaderboardEntrySerializer(serializers.Serializer):
+    username = serializers.CharField()
+    total_scores = serializers.IntegerField()
 
 
 class BotTextDictSerializer(serializers.ModelSerializer):

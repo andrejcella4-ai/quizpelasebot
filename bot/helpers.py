@@ -23,35 +23,22 @@ async def load_and_send_image(bot, chat_id: int, image_url: str, text: str, repl
     if not image_url:
         # Если нет изображения, отправляем только текст
         return await bot.send_message(chat_id, text, reply_markup=reply_markup)
-    
+
     try:
         # Получаем директорию для медиа файлов из переменных окружения или используем по умолчанию
         media_root = os.getenv('MEDIA_ROOT', '')
-        
-        # Если URL относительный (начинается с /media/), убираем префикс и добавляем MEDIA_ROOT
-        if image_url.startswith('/media/'):
-            # Убираем /media/ в начале
-            relative_path = image_url[7:]  # убираем '/media/'
-            if media_root:
-                file_path = Path(media_root) / relative_path
-            else:
-                # Если MEDIA_ROOT не задан, используем стандартный путь относительно проекта
-                # Определяем путь к корню проекта (поднимаемся из bot/ в корень)
-                project_root = Path(__file__).parent.parent
-                file_path = project_root / 'api' / 'media' / relative_path
-        else:
-            # Если путь уже полный, используем его как есть
-            file_path = Path(image_url)
-        
+
+        file_path = Path(media_root) / image_url
+
         # Проверяем, что файл существует
         if file_path.exists() and file_path.is_file():
             # Читаем файл с диска
             with open(file_path, 'rb') as image_file:
                 image_data = image_file.read()
-            
+
             # Определяем имя файла
             filename = file_path.name
-            
+
             # Отправляем изображение с текстом как caption
             return await bot.send_photo(
                 chat_id=chat_id,
@@ -63,12 +50,11 @@ async def load_and_send_image(bot, chat_id: int, image_url: str, text: str, repl
             print(f"Файл изображения не найден: {file_path}")
             # Если файл не найден, отправляем только текст
             return await bot.send_message(chat_id, text, reply_markup=reply_markup)
-            
+
     except Exception as e:
         print(f"Ошибка при чтении изображения {image_url}: {e}")
         # В случае ошибки отправляем только текст
         return await bot.send_message(chat_id, text, reply_markup=reply_markup)
-
 
 
 async def start_game_questions(callback: types.CallbackQuery, game_state: GameState):
@@ -76,7 +62,7 @@ async def start_game_questions(callback: types.CallbackQuery, game_state: GameSt
     if not game_state.questions:
         await finalize_game(callback.message.bot, callback.message.chat.id, game_state)
         return
-    
+
     # Проверяем, что есть участники
     if game_state.mode == "dm":
         if not game_state.players:
@@ -94,7 +80,7 @@ async def start_game_questions(callback: types.CallbackQuery, game_state: GameSt
             if game_key and game_key in _games_state:
                 del _games_state[game_key]
             return
-    
+
     # Инициализируем счет
     if game_state.mode == "dm":
         for player in game_state.players:
@@ -102,7 +88,7 @@ async def start_game_questions(callback: types.CallbackQuery, game_state: GameSt
     else:
         for team in game_state.teams:
             game_state.scores[team] = 0
-    
+
     await send_next_question(callback.message.bot, callback.message.chat.id, game_state)
 
 
@@ -221,22 +207,26 @@ async def send_next_question(bot, chat_id: int, game_state: GameState):
                 # Команда: короткое сообщение и гарантированный переход дальше
                 try:
                     correct = game_state.current_correct_answer
+
+                    game_state.waiting_next = True
                     await bot.send_message(
                         chat_id,
-                        "⌛️ Время вышло!\n\n" + TextStatics.show_right_answer_only(correct)
+                        "⌛️ Время вышло!\n\n" + TextStatics.show_right_answer_only(correct),
+                        reply_markup=question_result_keyboard(include_finish=False)
                     )
-                except Exception:
+                except Exception as e:
+                    print(f"Оибка при отправке сообщения с правильным ответом для команды: {e}")
                     pass
-                if should_advance_team:
+                #if should_advance_team:
                     # Запланируем переход как отдельную задачу, чтобы он произошёл даже при отмене текущей корутины
-                    asyncio.create_task(move_to_next_question(bot, chat_id, game_state))
+                #    asyncio.create_task(move_to_next_question(bot, chat_id, game_state))
                 return
 
             if should_send_dm:
                 right_list = sorted(list(game_state.answers_right))
                 wrong_list = sorted(list(game_state.answers_wrong))
                 not_answered_list = [p for p in sorted(list(game_state.players)) if p not in game_state.answers_right and p not in game_state.answers_wrong]
-                totals = {u: int(game_state.scores.get(u, 0)) * 10 for u in set(right_list + wrong_list)}
+                totals = {u: int(game_state.scores.get(u, 0)) for u in set(right_list + wrong_list)}
                 result_text = TextStatics.dm_quiz_question_result_message(
                     right_answer=game_state.current_correct_answer,
                     not_answered=not_answered_list,
@@ -355,7 +345,7 @@ async def finalize_game(bot, chat_id: int, game_state: GameState):
                 if game_state.scores:
                     system_token = os.getenv('BOT_SYSTEM_TOKEN') or os.getenv('BOT_TOKEN', '')
                     results = [
-                        {'username': username, 'points': int(score) * 10}
+                        {'username': username, 'points': int(score)}
                         for username, score in game_state.scores.items()
                     ]
                     await players_game_end_bulk(results, system_token)
@@ -402,7 +392,7 @@ async def process_answer(bot, chat_id: int, game_state: GameState, username: str
     if current_question["question_type"] == QuestionTypeChoices.TEXT and username not in game_state.attempts_left_by_user:
         game_state.attempts_left_by_user[username] = 2
 
-    # Обновляем статистику и очки
+    # Обновляем статистику и Баллы
     if is_correct:
         game_state.answers_right.add(username)
         # Подсчет очков с учетом попыток для TEXT
@@ -429,8 +419,14 @@ async def process_answer(bot, chat_id: int, game_state: GameState, username: str
                     game_state.timer_task = None
             except Exception:
                 pass
-            await bot.send_message(chat_id, TextStatics.show_right_answer_only(current_question["correct_answer"]))
-            await move_to_next_question(bot, chat_id, game_state)
+
+            game_state.waiting_next = True
+            await bot.send_message(
+                chat_id,
+                TextStatics.show_right_answer_only(current_question["correct_answer"]),
+                reply_markup=question_result_keyboard(include_finish=False)
+            )
+            # await move_to_next_question(bot, chat_id, game_state)
             return
         else:
             # DM режим — просто ответим на клик
@@ -444,7 +440,6 @@ async def process_answer(bot, chat_id: int, game_state: GameState, username: str
 
             # Сообщаем пользователю об оставшихся попытках
             wrong_text = TextStatics.team_quiz_question_wrong_answer(attempts_left, current_question["correct_answer"]) if game_state.mode == "team" else TextStatics.dm_text_wrong_attempt(attempts_left, current_question["correct_answer"])
-            await bot.send_message(chat_id, wrong_text)
 
             # Если попыток больше нет
             if attempts_left <= 0:
@@ -455,9 +450,14 @@ async def process_answer(bot, chat_id: int, game_state: GameState, username: str
                     if game_state.timer_task:
                         game_state.timer_task.cancel()
                         game_state.timer_task = None
-                    await move_to_next_question(bot, chat_id, game_state)
+
+                    game_state.waiting_next = True
+                    await bot.send_message(chat_id, wrong_text, reply_markup=question_result_keyboard(include_finish=False))
+                    # await move_to_next_question(bot, chat_id, game_state)
                     return
                 # В DM режиме — ждём остальных через общий механизм
+            else:
+                await bot.send_message(chat_id, wrong_text)
         else:
             # Для вариантов — сразу отмечаем как неправильный
             game_state.answers_wrong.add(username)
@@ -510,19 +510,20 @@ async def check_if_all_answered(bot, chat_id: int, game_state: GameState):
             try:
                 await bot.send_message(
                     chat_id,
-                    TextStatics.show_right_answer_only(game_state.current_correct_answer)
+                    TextStatics.show_right_answer_only(game_state.current_correct_answer),
+                    reply_markup=question_result_keyboard(include_finish=False)
                 )
-            except Exception:
-                pass
-            if should_advance_team:
-                await move_to_next_question(bot, chat_id, game_state)
+            except Exception as e:
+                print(f"Оибка при отправке сообщения с правильным ответом для команды: {e}")
+            #if should_advance_team:
+            #    await move_to_next_question(bot, chat_id, game_state)
             return
 
         if should_send_dm:
             right_list = sorted(list(game_state.answers_right))
             wrong_list = sorted(list(game_state.answers_wrong))
             not_answered_list = [p for p in sorted(list(game_state.players)) if p not in game_state.answers_right and p not in game_state.answers_wrong]
-            totals = {u: int(game_state.scores.get(u, 0)) * 10 for u in set(right_list + wrong_list)}
+            totals = {u: int(game_state.scores.get(u, 0)) for u in set(right_list + wrong_list)}
             result_text = TextStatics.dm_quiz_question_result_message(
                 right_answer=game_state.current_correct_answer,
                 not_answered=not_answered_list,
@@ -531,6 +532,15 @@ async def check_if_all_answered(bot, chat_id: int, game_state: GameState):
                 totals=totals,
             )
             await bot.send_message(chat_id, result_text, reply_markup=question_result_keyboard(include_finish=False))
+
+
+async def question_transition_delay(bot, chat_id: int, game_state: GameState, delay: int = 3):
+    sent = await bot.send_message(chat_id, TextStatics.question_transition_delay())
+    await asyncio.sleep(delay)
+    await bot.delete_message(chat_id, sent.message_id)
+
+    await move_to_next_question(bot, chat_id, game_state)
+    game_state.next_in_progress = False
 
 
 async def schedule_question_timeout(timeout_seconds: int, on_timeout_callback, bot=None, chat_id=None, game_state: GameState | None = None, token: int | None = None) -> asyncio.Task:
@@ -702,21 +712,21 @@ def format_game_status(game_state, question_text: str | None = None) -> str:
 
 
 async def create_team_helper(
-    team_name: str, message: types.Message, city: str | None = None
+    team_name: str, message: types.Message, captain_user: types.User, city: str | None = None
 ):
     # Auth player to get token
     token = await auth_player(
-        telegram_id=message.from_user.id,
-        first_name=message.from_user.first_name,
-        last_name=message.from_user.last_name or "",
-        username=message.from_user.username,
+        telegram_id=captain_user.id,
+        first_name=captain_user.first_name,
+        last_name=captain_user.last_name or "",
+        username=captain_user.username,
         phone=None,
-        lang_code=message.from_user.language_code,
+        lang_code=captain_user.language_code,
     )
 
     chat_username = message.chat.username or str(message.chat.id)
     try:
-        await create_team(token, chat_username, team_name, message.from_user.id, city)
+        await create_team(token, chat_username, team_name, captain_user.id, city)
         return True
     except Exception as e:
         print(e)
