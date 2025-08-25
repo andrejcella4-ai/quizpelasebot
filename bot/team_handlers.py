@@ -105,7 +105,9 @@ async def create_team_name(message: types.Message, state: FSMContext):
 
         await message.bot.delete_message(message.chat.id, create_team_message_id)
 
-        sent = await message.answer(TextStatics.need_choose_city(), reply_markup=skip_keyboard())
+        team = message.text.strip()
+        captain = '@' + (message.from_user.username or '') if message.from_user.username else (message.from_user.first_name or 'Капитан')
+        sent = await message.answer(TextStatics.need_choose_city(team, captain), reply_markup=skip_keyboard())
 
         await state.update_data(choose_city_message_id=sent.message_id)
         await state.update_data(team_name=message.text.strip())

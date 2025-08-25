@@ -16,8 +16,8 @@ def main_menu_keyboard() -> InlineKeyboardMarkup:
     """Клавиатура главного меню с выбором типа игры"""
     builder = InlineKeyboardBuilder()
 
-    builder.button(text='🏆 Соревнование', callback_data='game:dm')
-    builder.button(text='👥 Кооперация', callback_data='game:team')
+    builder.button(text='🎯 Соревнование', callback_data='game:dm')
+    builder.button(text='🤝 Командный', callback_data='game:team')
 
     builder.adjust(1)
     return builder.as_markup()
@@ -93,9 +93,9 @@ def finish_quiz_keyboard() -> InlineKeyboardMarkup:
 
 def registration_dm_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    builder.button(text='✅Участвовать', callback_data='reg:join')
-    builder.button(text='▶️Начать викторину', callback_data='reg:end')
-    builder.button(text='🔙Отменить игру', callback_data='game:cancel')
+    builder.button(text='✅ Участвовать', callback_data='reg:join')
+    builder.button(text='▶️ Начать игру', callback_data='reg:end')
+    builder.button(text='🔙 Отменить игру', callback_data='game:cancel')
     builder.adjust(1)
     return builder.as_markup()
 
