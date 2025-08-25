@@ -3,11 +3,14 @@ from rest_framework import viewsets
 from rest_framework.response import Response
 from rest_framework import status, permissions, serializers
 from django.utils import timezone
+from django.db import transaction
+from django.db.models import Exists, OuterRef
 
 from datetime import datetime
 import random
+
 import pytz
-from .models import TelegramPlayer, Quiz, PlayerToken, Team, PlanTeamQuiz, BotText, City
+from .models import TelegramPlayer, Quiz, PlayerToken, Team, PlanTeamQuiz, BotText, City, Question, QuestionUsage
 from .serializers import (
     AuthPlayerSerializer, QuizInfoSerializer, QuestionListSerializer, TeamSerializer,
     PlanTeamQuizSerializer, TelegramPlayerUpdateSerializer, LeaderboardEntrySerializer,
@@ -71,7 +74,7 @@ class QuizListView(APIView):
         return Response(serializer.data)
 
 
-class QuestionListView(APIView):
+class QuestionQuizListView(APIView):
     authentication_classes = [PlayerTokenAuthentication]
     permission_classes = [permissions.IsAuthenticated]
 
@@ -93,6 +96,71 @@ class QuestionListView(APIView):
         serializer = QuestionListSerializer(selected, many=True, context={'time_to_answer': quiz.time_to_answer})
 
         return Response(serializer.data)
+
+
+class RotatedQuestionListView(APIView):
+    """POST: отдаёт список вопросов по use_type (dm/solo) с ротацией по context_id.
+    Авторизация: системный токен.
+    Тело запроса: { use_type: 'dm'|'solo', context_id: int, size: int, time_to_answer?: int }
+    Ответ: { questions: [QuestionListSerializer ...] }
+    """
+    authentication_classes = [SystemTokenAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        use_type = request.data.get('use_type')
+        context_id = request.data.get('context_id')
+        size = request.data.get('size')
+        time_to_answer = request.data.get('time_to_answer')
+
+        # Валидация
+        if use_type not in ('dm', 'solo'):
+            return Response({'detail': 'use_type must be "dm" or "solo"'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            context_id = int(context_id)
+        except Exception:
+            return Response({'detail': 'context_id must be integer'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            size = int(size)
+        except Exception:
+            return Response({'detail': 'size must be integer'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if size <= 0:
+            return Response({'detail': 'size must be > 0'}, status=status.HTTP_400_BAD_REQUEST)
+
+        with transaction.atomic():
+            # Кандидаты — все вопросы данного типа игры, не использованные в этом контексте
+            exists_subq = QuestionUsage.objects.filter(
+                use_type=use_type, context_id=context_id, question=OuterRef('pk')
+            )
+            available_qs = (
+                Question.objects
+                .filter(game_use_type=use_type)
+                .annotate(already_used=Exists(exists_subq))
+                .filter(already_used=False)
+            )
+
+            # Одним запросом случайно выбираем нужное количество
+            selected = list(available_qs.order_by('?')[:size])
+
+            # Если не хватило — сброс истории и выбор из полного пула
+            if len(selected) < size:
+                QuestionUsage.objects.filter(use_type=use_type, context_id=context_id).delete()
+                selected = list(Question.objects.filter(game_use_type=use_type).order_by('?')[:size])
+
+            if not selected:
+                return Response({'questions': []})
+
+            # Зафиксировать использование
+            usages = [QuestionUsage(use_type=use_type, context_id=context_id, question=q) for q in selected]
+            try:
+                QuestionUsage.objects.bulk_create(usages, ignore_conflicts=True)
+            except Exception:
+                pass
+
+        serializer = QuestionListSerializer(selected, many=True, context={'time_to_answer': time_to_answer})
+        return Response({'questions': serializer.data})
 
 
 class TeamViewSet(viewsets.ModelViewSet):

@@ -10,8 +10,16 @@ from .models import (
     PlanTeamQuiz,
     PlayerToken,
     BotText,
-    City
+    City,
+    QuestionUsage
 )
+
+
+@admin.register(QuestionUsage)
+class QuestionUsageAdmin(admin.ModelAdmin):
+    list_display = ('id', 'question', 'use_type', 'context_id')
+    list_filter = ('use_type', 'context_id')
+    search_fields = ('question__text',)
 
 
 @admin.register(TelegramPlayer)

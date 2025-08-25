@@ -164,3 +164,33 @@ async def get_bot_texts(system_token: str) -> dict:
         async with session.get(f'{BASE_URL}/bot-texts/') as resp:
             resp.raise_for_status()
             return await resp.json()
+
+
+async def get_rotated_questions_solo(system_token: str, telegram_id: int, size: int, time_to_answer: int = 10) -> dict:
+    """Получить вопросы для solo игры с ротацией"""
+    headers = {'Authorization': f'Token {system_token}'}
+    payload = {
+        'use_type': 'solo',
+        'context_id': telegram_id,
+        'size': size,
+        'time_to_answer': time_to_answer
+    }
+    async with aiohttp.ClientSession(headers=headers) as session:
+        async with session.post(f'{BASE_URL}/question/rotated/', json=payload) as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+
+async def get_rotated_questions_dm(system_token: str, chat_id: int, size: int, time_to_answer: int = 10) -> dict:
+    """Получить вопросы для dm игры с ротацией"""
+    headers = {'Authorization': f'Token {system_token}'}
+    payload = {
+        'use_type': 'dm',
+        'context_id': chat_id,
+        'size': size,
+        'time_to_answer': time_to_answer
+    }
+    async with aiohttp.ClientSession(headers=headers) as session:
+        async with session.post(f'{BASE_URL}/question/rotated/', json=payload) as resp:
+            resp.raise_for_status()
+            return await resp.json()

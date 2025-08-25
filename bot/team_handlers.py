@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from datetime import datetime, timedelta
 
 from aiogram import Router, types
@@ -8,7 +9,7 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.filters import Command
 
-from api_client import get_quiz_info, get_questions, auth_player, get_team, get_quiz_list, list_plan_team_quizzes, team_leaderboard
+from api_client import get_quiz_info, get_questions, auth_player, get_team, get_quiz_list, list_plan_team_quizzes, team_leaderboard, get_rotated_questions_dm
 from keyboards import (
     main_menu_keyboard,
     registration_dm_keyboard,
@@ -241,13 +242,49 @@ async def start_registration(callback: types.CallbackQuery, state: FSMContext):
 
         async def on_expire():
             try:
-                # Завершили регистрацию — предлагаем выбрать тему
+                # Завершили регистрацию — сразу загружаем вопросы и начинаем игру
+                if not game_state.available_quizzes:
+                    await callback.message.bot.edit_message_text(
+                        chat_id=callback.message.chat.id,
+                        message_id=game_state.message_id,
+                        text="Нет доступных викторин для DM игр"
+                    )
+                    return
+                
+                quiz = game_state.available_quizzes[0]  # Берем первый квиз для настроек
+                
+                # Получаем вопросы через новую ротационную систему для DM игр
+                system_token = os.getenv('BOT_TOKEN')
+                questions_data = await get_rotated_questions_dm(
+                    system_token=system_token,
+                    chat_id=callback.message.chat.id,
+                    size=quiz['amount_questions'],
+                    time_to_answer=quiz['time_to_answer']
+                )
+                
+                if not questions_data.get('questions'):
+                    await callback.message.bot.edit_message_text(
+                        chat_id=callback.message.chat.id,
+                        message_id=game_state.message_id,
+                        text="Нет доступных вопросов для DM игр"
+                    )
+                    return
+                
+                game_state.questions = questions_data["questions"]
+                game_state.total_questions = len(game_state.questions)
+                game_state.status = "playing"
+                game_state.quiz_name = "DM викторина"
+                
                 await callback.message.bot.edit_message_text(
                     chat_id=callback.message.chat.id,
                     message_id=game_state.message_id,
-                    text=TextStatics.dm_select_theme_message(),
-                    reply_markup=quiz_theme_keyboard([(q.get("name", str(q.get("id"))), q.get("id")) for q in game_state.available_quizzes])
+                    text=TextStatics.theme_selected_start(game_state.quiz_name, game_state.total_questions)
                 )
+                
+                # Начинаем игру
+                from helpers import start_game_questions
+                await start_game_questions(callback, game_state)
+                
             except Exception as e:
                 print(f"Ошибка в on_expire: {e}")
                 import traceback
@@ -470,11 +507,40 @@ async def reg_end_dm(callback: types.CallbackQuery):
         game_state.timer_task.cancel()
         game_state.timer_task = None
 
+    # Сразу загружаем вопросы и начинаем игру
     try:
-        await callback.message.edit_text(
-            TextStatics.dm_select_theme_message(),
-            reply_markup=quiz_theme_keyboard([(q.get("name", str(q.get("id"))), q.get("id")) for q in game_state.available_quizzes])
+        if not game_state.available_quizzes:
+            await callback.message.edit_text("Нет доступных викторин для DM игр")
+            return
+        
+        quiz = game_state.available_quizzes[0]  # Берем первый квиз для настроек
+        
+        # Получаем вопросы через новую ротационную систему для DM игр
+        system_token = os.getenv('BOT_TOKEN')
+        questions_data = await get_rotated_questions_dm(
+            system_token=system_token,
+            chat_id=callback.message.chat.id,
+            size=quiz['amount_questions'],
+            time_to_answer=quiz['time_to_answer']
         )
+        
+        if not questions_data.get('questions'):
+            await callback.message.edit_text("Нет доступных вопросов для DM игр")
+            return
+        
+        game_state.questions = questions_data["questions"]
+        game_state.total_questions = len(game_state.questions)
+        game_state.status = "playing"
+        game_state.quiz_name = "DM викторина"
+        
+        await callback.message.edit_text(
+            TextStatics.theme_selected_start(game_state.quiz_name, game_state.total_questions)
+        )
+        
+        # Начинаем игру
+        from helpers import start_game_questions
+        await start_game_questions(callback, game_state)
+        
     except TelegramBadRequest as e:
         if "message is not modified" not in str(e):
             raise
@@ -547,61 +613,7 @@ async def answer_variant_callback(callback: types.CallbackQuery):
     )
 
 
-# --- Выбор темы DM после регистрации ---
-@router.callback_query(lambda c: c.data.startswith("theme_id:"))
-async def choose_theme_dm(callback: types.CallbackQuery):
-    await callback.answer()
 
-    game_key = _get_game_key_for_chat(callback.message.chat.id)
-    if not game_key:
-        return
-    game_state = get_game_state(game_key)
-    # Сериализуем старт DM-игры на этапе выбора темы, чтобы не было дублей
-    if game_state.transition_lock is None:
-        game_state.transition_lock = asyncio.Lock()
-    async with game_state.transition_lock:
-        if game_state.mode != "dm" or game_state.status != "reg":
-            return
-
-        selected_id_str = callback.data.split(":", 1)[1]
-        try:
-            selected_id = int(selected_id_str)
-        except ValueError:
-            return
-        # Найдем квиз по id
-        quiz = next((q for q in game_state.available_quizzes if q.get("id") == selected_id), None)
-        if not quiz:
-            return
-
-        game_state.quiz_id = quiz["id"]
-        game_state.quiz_name = quiz.get("name")
-
-        # Загрузим вопросы
-        token = await auth_player(
-            telegram_id=callback.from_user.id,
-            first_name=callback.from_user.first_name,
-            last_name=callback.from_user.last_name or "",
-            username=callback.from_user.username,
-            phone=None,
-            lang_code=callback.from_user.language_code
-        )
-
-        questions_data = await get_questions(token, game_state.quiz_id)
-        game_state.questions = questions_data["questions"]
-        game_state.total_questions = len(game_state.questions)
-        game_state.status = "playing"
-
-        # Безопасно редактируем сообщение (игнорируем "message is not modified")
-        try:
-            await callback.message.edit_text(
-                TextStatics.theme_selected_start(game_state.quiz_name or str(selected_id), game_state.total_questions)
-            )
-        except TelegramBadRequest as e:
-            if "message is not modified" not in str(e):
-                raise
-
-    # Стартуем вопросы (вне lock)
-    await start_game_questions(callback, game_state)
 
 
 @router.message(

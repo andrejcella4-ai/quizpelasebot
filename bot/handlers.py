@@ -14,6 +14,7 @@ from api_client import (
     player_game_end,
     player_leaderboard,
     player_update_notifications,
+    get_rotated_questions_solo,
 )
 from keyboards import main_menu_keyboard, confirm_start_keyboard, create_variant_keyboard, private_menu_keyboard, question_result_keyboard, quiz_theme_keyboard, finish_quiz_keyboard
 from static.answer_texts import TextStatics
@@ -240,7 +241,7 @@ async def callback_solo(callback: types.CallbackQuery, state: FSMContext):
         await callback.message.answer(TextStatics.game_already_running())
         return
 
-    # Authenticate player and then предложим выбрать тему из всех соло-игр
+    # Authenticate player
     token = await auth_player(
         telegram_id=callback.from_user.id,
         first_name=callback.from_user.first_name,
@@ -249,40 +250,37 @@ async def callback_solo(callback: types.CallbackQuery, state: FSMContext):
         lang_code=callback.from_user.language_code
     )
 
-    await state.update_data(token=token)
+    # Получаем первый квиз для настроек (время ответа и количество вопросов)
     quizzes = await get_quiz_list('solo')
-    await state.update_data(available_solo_quizzes=quizzes)
-
-    await callback.message.answer(
-        TextStatics.theme_selection_solo(),
-        reply_markup=quiz_theme_keyboard([(q.get('name', str(q.get('id'))), q.get('id')) for q in quizzes], prefix='solo_theme:')
+    if not quizzes:
+        await callback.message.answer("Нет доступных викторин для solo игр")
+        return
+    
+    quiz = quizzes[0]  # Берем первый квиз для настроек
+    
+    # Получаем вопросы через новую ротационную систему
+    system_token = os.getenv('SYSTEM_TOKEN')
+    questions_data = await get_rotated_questions_solo(
+        system_token=system_token,
+        telegram_id=callback.from_user.id,
+        size=quiz['amount_questions'],
+        time_to_answer=quiz['time_to_answer']
     )
-    await state.set_state(SoloGameStates.WAITING_THEME)
-
-
-@router.callback_query(SoloGameStates.WAITING_THEME, lambda c: c.data and c.data.startswith('solo_theme:'))
-async def choose_solo_theme(callback: types.CallbackQuery, state: FSMContext):
-    await callback.answer()
-    data = await state.get_data()
-    quizzes = data.get('available_solo_quizzes', [])
-    selected_id_str = callback.data.split(':', 1)[1]
-    try:
-        selected_id = int(selected_id_str)
-    except ValueError:
+    
+    if not questions_data.get('questions'):
+        await callback.message.answer("Нет доступных вопросов для solo игр")
         return
-    quiz = next((q for q in quizzes if q.get('id') == selected_id), None)
-    if not quiz:
-        return
-    token = data.get('token')
-    quiz_info = await get_quiz_info('solo', quiz_id=quiz['id'])
-    questions_data = await get_questions(token, quiz_info['id'])
-    await state.update_data(quiz_info=quiz_info, questions=questions_data['questions'], current_index=0, correct=0, incorrect=0, last_question_msg_id=None)
+    
+    await state.update_data(quiz_info=quiz, questions=questions_data['questions'], current_index=0, correct=0, incorrect=0, last_question_msg_id=None)
 
     start_text = TextStatics.get_solo_start_text(
-        quiz_info['name'], quiz_info['amount_questions']
+        "Соло викторина", len(questions_data['questions'])
     )
     await callback.message.edit_text(start_text, reply_markup=confirm_start_keyboard())
     await state.set_state(SoloGameStates.WAITING_CONFIRM)
+
+
+
 
 
 @router.callback_query(SoloGameStates.WAITING_CONFIRM, lambda c: c.data == 'game:solo:start')

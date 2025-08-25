@@ -8,7 +8,7 @@ from main.views import (
     AuthPlayerView,
     QuizView,
     QuizListView,
-    QuestionListView,
+    QuestionQuizListView,
     TeamByChatView,
     TeamViewSet,
     PlanTeamQuizListView,
@@ -22,6 +22,7 @@ from main.views import (
     PlayersTotalPointsView,
     BotTextsDictView,
     BotTextsBulkUpsertView,
+    RotatedQuestionListView,
 )
 
 
@@ -34,7 +35,8 @@ urlpatterns = [
     path('auth/player/', AuthPlayerView.as_view(), name='auth-player'),
     path('quiz/game/<str:quiz_type>/', QuizView.as_view(), name='quiz-single'),
     path('quiz/list/<str:quiz_type>/', QuizListView.as_view(), name='quiz-list'),
-    path('question/list/', QuestionListView.as_view(), name='question-list'),
+    path('question/list/', QuestionQuizListView.as_view(), name='question-list'),
+    path('question/rotated/', RotatedQuestionListView.as_view(), name='question-rotated'),
     path('team/<str:chat_username>/', TeamByChatView.as_view(), name='team-by-chat'),
     path('game/plan-game/list/', PlanTeamQuizListView.as_view(), name='plan-team-quiz-list'),
     path('player/game-end/', PlayerGameEndView.as_view(), name='player-game-end'),

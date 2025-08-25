@@ -102,13 +102,6 @@ class Question(models.Model):
         blank=True,
         null=True,
     )
-    status = models.CharField(
-        max_length=255,
-        choices=QuestionStatusChoices.choices,
-        verbose_name='Статус вопроса',
-        blank=True,
-        null=True,
-    )
 
     def __str__(self):
         return self.text
@@ -116,6 +109,25 @@ class Question(models.Model):
     class Meta:
         verbose_name = 'Вопрос'
         verbose_name_plural = 'Вопросы'
+
+
+class QuestionUsage(models.Model):
+    class UseType(models.TextChoices):
+        DM = 'dm', 'DM'
+        SOLO = 'solo', 'SOLO'
+
+    use_type = models.CharField(max_length=10, choices=UseType.choices, verbose_name='Тип использования')
+    context_id = models.BigIntegerField(verbose_name='Контекст (chat_id или telegram_id)')
+    question = models.ForeignKey(Question, on_delete=models.CASCADE, related_name='usages', verbose_name='Вопрос')
+    used_at = models.DateTimeField(auto_now_add=True, verbose_name='Дата использования')
+
+    class Meta:
+        verbose_name = 'Использование вопроса'
+        verbose_name_plural = 'Использования вопросов'
+        unique_together = (('use_type', 'context_id', 'question'),)
+        indexes = [
+            models.Index(fields=['use_type', 'context_id', 'used_at']),
+        ]
 
 
 class QuestionAnswer(models.Model):

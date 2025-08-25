@@ -403,7 +403,7 @@ async def process_answer(bot, chat_id: int, game_state: GameState, username: str
             gain = 1
 
         if game_state.mode == "dm":
-            # В DM считаем количество правильных ответов (по 10 баллов в отображении)
+            # В DM считаем количество правильных ответов (по 1 балл в отображении)
             game_state.scores[username] = game_state.scores.get(username, 0) + 1
         elif game_state.mode == "team":
             for team, _ in game_state.teams.items():
