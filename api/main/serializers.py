@@ -50,8 +50,8 @@ class QuestionListSerializer(serializers.ModelSerializer):
     def get_correct_answers(self, obj):
         ans = obj.questionanswer_set.filter(is_right=True).first()
         config = Config.objects.filter(name='correct_answers_separator').first()
-        
-        return [a.lower().strip() for a in ans.text.split(config.value if config else ';')] if ans else []
+
+        return [a.strip() for a in ans.text.split(config.value if config else ';')] if ans else []
 
     def get_time_to_answer(self, obj):
         # Берем из контекста, куда передается значение из связанного Quiz
@@ -79,10 +79,11 @@ class TeamSerializer(serializers.ModelSerializer):
 
 class PlanTeamQuizSerializer(serializers.ModelSerializer):
     quiz_name = serializers.CharField(source='quiz.name', read_only=True)
+    time_to_answer = serializers.IntegerField(source='quiz.time_to_answer', read_only=True)
 
     class Meta:
         model = PlanTeamQuiz
-        fields = ('id', 'quiz', 'quiz_name', 'always_active', 'scheduled_datetime')
+        fields = ('id', 'quiz', 'quiz_name', 'time_to_answer', 'always_active', 'scheduled_datetime')
 
 
 class TelegramPlayerUpdateSerializer(serializers.ModelSerializer):

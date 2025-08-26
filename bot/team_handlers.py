@@ -165,11 +165,11 @@ async def start_registration(callback: types.CallbackQuery, state: FSMContext):
     """Callback after user selects DM or Team mode from main menu."""
     await callback.answer()
 
-    # Проверяем есть ли уже активная игра
+    # Проверяем есть ли уже активная игра или регистрация
     game_key = _get_game_key_for_chat(callback.message.chat.id)
     if game_key:
         game_state = get_game_state(game_key)
-        if game_state.status == "playing":
+        if game_state.status in ["playing", "reg"]:
             await callback.message.answer(TextStatics.game_already_running())
             return
 
@@ -474,7 +474,6 @@ async def choose_team_plan(callback: types.CallbackQuery, state: FSMContext):
 async def reg_join_dm(callback: types.CallbackQuery):
     await callback.answer()
 
-    chat_username = str(callback.message.chat.id)
     game_key = _get_game_key_for_chat(callback.message.chat.id)
     if not game_key:
         return
@@ -527,6 +526,7 @@ async def reg_end_dm(callback: types.CallbackQuery):
         system_token = os.getenv('BOT_TOKEN')
         configs = await get_configs(system_token)
         amount_questions = int([config['value'] for config in configs if config['name'] == 'amount_questions_dm'][0])
+
 
         questions_data = await get_rotated_questions_dm(
             system_token=system_token,
@@ -584,7 +584,7 @@ async def answer_variant_callback(callback: types.CallbackQuery):
         # В командном режиме может отвечать только капитан
 
         if list(game_state.captains.values())[0] != username:
-            await callback.message.answer(TextStatics.captain_only_can_answer(username))
+            await callback.message.answer(TextStatics.captain_only_can_answer(list(game_state.captains.values())[0]))
             return
     else:
         # DM: только зарегистрированные игроки
@@ -666,7 +666,7 @@ async def answer_text_message(message: types.Message):
                 break
         
         if not user_team or game_state.captains.get(user_team) != username:
-            await message.answer(TextStatics.captain_only_can_answer(username))
+            await message.answer(TextStatics.captain_only_can_answer(list(game_state.captains.values())[0]))
             return
     
     # Проверяем, что игрок еще не отвечал

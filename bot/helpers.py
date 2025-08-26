@@ -145,7 +145,7 @@ async def send_next_question(bot, chat_id: int, game_state: GameState):
     game_state.question_result_sent = False
     # Сохраним снимок правильного ответа/идентификатора
     try:
-        game_state.current_correct_answer = question.get("correct_answer")
+        game_state.current_correct_answer = question.get("correct_answers", [question["correct_answer"]])[0]
     except Exception:
         game_state.current_correct_answer = None
 
