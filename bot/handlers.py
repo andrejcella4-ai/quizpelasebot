@@ -482,5 +482,10 @@ async def help_command(message: types.Message):
 
 @router.message(Command('update_texts'))
 async def update_texts(message: types.Message):
+    admin_users = os.getenv('ADMIN_USERS', '').split(' ')
+
+    if str(message.from_user.id) not in admin_users:
+        return
+
     answer_texts._current_bot_texts = {list(item.keys())[0]: list(item.values())[0] for item in get_bot_texts(os.getenv('BOT_TOKEN'))}
     await message.answer("Тексты обновлены")
