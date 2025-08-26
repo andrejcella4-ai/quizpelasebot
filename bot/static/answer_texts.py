@@ -188,8 +188,10 @@ class TextStatics:
         return _t('no_teams_cannot_start', 'Игра не может начаться без команд!')
 
     @staticmethod
-    def show_right_answer_only(right_answer: str) -> str:
-        return _t('show_right_answer_only', '✅ Правильный ответ: {right_answer}', right_answer=right_answer)
+    def show_right_answer_only(right_answer: str, comment: str | None = None) -> str:
+        comment_block = f"\n\nКомментарий: {comment}" if comment else ""
+        return _t('show_right_answer_only', '✅ Правильный ответ: {right_answer}{comment_block}', 
+                  right_answer=right_answer, comment_block=comment_block)
 
     @staticmethod
     def correct_inline_hint() -> str:
@@ -259,14 +261,16 @@ class TextStatics:
         return _t('dm_quiz_finished_full', default, results=results, stats_block=stats_block)
 
     @staticmethod
-    def dm_text_wrong_attempt(attempts_remaining: int, right_answer: str) -> str:
+    def dm_text_wrong_attempt(attempts_remaining: int, right_answer: str, comment: str | None = None) -> str:
         if attempts_remaining == 1:
             return _t('dm_text_wrong_attempt_1', '❌ Неправильный ответ! Осталась 1 попытка')
         else:
+            comment_block = f"\n\nКомментарий: {comment}" if comment else ""
             return _t(
                 'dm_text_wrong_attempt_0',
-                '❌ Неправильный ответ! Попыток больше нет.\n✅ Правильный ответ: {right_answer}\n\nПереходим к следующему вопросу...',
+                '❌ Неправильный ответ! Попыток больше нет.\n✅ Правильный ответ: {right_answer}{comment_block}\n\nПереходим к следующему вопросу...',
                 right_answer=right_answer,
+                comment_block=comment_block
             )
 
     @staticmethod
@@ -333,8 +337,9 @@ class TextStatics:
         return _t('game_not_running', 'Игра не идет!')
 
     @staticmethod
-    def captain_only_can_answer() -> str:
-        return _t('captain_only_can_answer', 'Отвечать может только капитан команды!')
+    def captain_only_can_answer(username: str) -> str:
+        default = f"Отвечать может только капитан команды! (@{username})"
+        return _t('captain_only_can_answer_with_username', default, username=username)
 
     @staticmethod
     def already_answered() -> str:
@@ -399,6 +404,7 @@ class TextStatics:
         wrong_answers: list[str],
         right_answers: list[str],
         totals: dict[str, int] | None = None,
+        comment: str | None = None,
     ) -> str:
         blocks = []
         if right_answers:
@@ -420,13 +426,20 @@ class TextStatics:
             blocks.append(f"⏳ Не успели ответить:\n{na}")
 
         details = ("\n\n".join(blocks)) if blocks else ""
+        comment_block = f"\n\nКомментарий: {comment}" if comment else ""
         default = (
             "⌛️ Время вышло!\n\n"
-            "✅ Правильный ответ: {right_answer}\n\n"
+            "✅ Правильный ответ: {right_answer}{comment_block}\n\n"
             "📊 Ответы участников:\n\n"
             "{details}"
         )
-        return _t('dm_quiz_question_result_message', default, right_answer=right_answer, details=details.rstrip())
+        return _t(
+            'dm_quiz_question_result_message',
+            default,
+            right_answer=right_answer,
+            details=details.rstrip(),
+            comment_block=comment_block
+        )
 
     @staticmethod
     def dm_quiz_question_template(text: str, timer: int, current_q_idx: int) -> str:
@@ -492,14 +505,16 @@ class TextStatics:
         return _t('team_prep_message_started', default, quiz_name=quiz_name, captain=captain)
 
     @staticmethod
-    def team_quiz_question_wrong_answer(attempts_remaining: int, right_answer: str) -> str:
+    def team_quiz_question_wrong_answer(attempts_remaining: int, right_answer: str, comment: str | None = None) -> str:
         if attempts_remaining == 1:
             return _t('team_quiz_question_wrong_answer_1', '❌ Неправильный ответ!\n осталась 1 попытка')
         else:
+            comment_block = f"\n\nКомментарий: {comment}" if comment else ""
             return _t(
                 'team_quiz_question_wrong_answer_0',
-                '❌ Неправильный ответ! Попыток больше нет.\n✅ Правильный ответ: {right_answer}\n\nПереходим к следующему вопросу...',
+                '❌ Неправильный ответ! Попыток больше нет.\n✅ Правильный ответ: {right_answer}{comment_block}\n\nПереходим к следующему вопросу...',
                 right_answer=right_answer,
+                comment_block=comment_block
             )
 
     @staticmethod

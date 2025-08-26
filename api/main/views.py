@@ -4,17 +4,18 @@ from rest_framework.response import Response
 from rest_framework import status, permissions, serializers
 from django.utils import timezone
 from django.db import transaction
+from django.db.models import Q
 from django.db.models import Exists, OuterRef
 
 from datetime import datetime
 import random
 
 import pytz
-from .models import TelegramPlayer, Quiz, PlayerToken, Team, PlanTeamQuiz, BotText, City, Question, QuestionUsage
+from .models import TelegramPlayer, Quiz, PlayerToken, Team, PlanTeamQuiz, BotText, City, Question, QuestionUsage, Config
 from .serializers import (
     AuthPlayerSerializer, QuizInfoSerializer, QuestionListSerializer, TeamSerializer,
     PlanTeamQuizSerializer, TelegramPlayerUpdateSerializer, LeaderboardEntrySerializer,
-    BotTextDictSerializer, TeamLeaderboardEntrySerializer
+    BotTextDictSerializer, TeamLeaderboardEntrySerializer, ConfigSerializer
 )
 from .authentication import PlayerTokenAuthentication, SystemTokenAuthentication
 
@@ -163,6 +164,13 @@ class RotatedQuestionListView(APIView):
         return Response({'questions': serializer.data})
 
 
+class ConfigViewSet(viewsets.ModelViewSet):
+    authentication_classes = [SystemTokenAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = ConfigSerializer
+    queryset = Config.objects.all()
+
+
 class TeamViewSet(viewsets.ModelViewSet):
     authentication_classes = [PlayerTokenAuthentication]
     permission_classes = [permissions.IsAuthenticated]
@@ -200,13 +208,20 @@ class TeamViewSet(viewsets.ModelViewSet):
 
 
 class PlanTeamQuizListView(APIView):
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
+    authentication_classes = [PlayerTokenAuthentication]
 
-    def get(self, request):
+    def get(self, request, chat_username):
         current_time = datetime.now(pytz.timezone('Europe/Moscow')).date()
+        team = Team.objects.filter(chat_username=chat_username).first()
+
+        if not team:
+            return Response({'detail': 'Team not found'}, status=status.HTTP_404_NOT_FOUND)
 
         items = PlanTeamQuiz.objects.filter(
-            scheduled_datetime__gte=current_time,
+            Q(scheduled_datetime__gte=current_time) | Q(always_active=True),
+        ).exclude(
+            teams_played=team
         ).select_related('quiz').order_by('id')
 
         serializer = PlanTeamQuizSerializer(items, many=True)
@@ -292,12 +307,24 @@ class TeamGameEndView(APIView):
 
     def post(self, request, team_id):
         points = int(request.data.get('points', 0))
+        plan_team_quiz_id = int(request.data.get('plan_team_quiz_id', 0))
+
         try:
             team = Team.objects.get(id=team_id)
         except Team.DoesNotExist:
             return Response({'detail': 'Team not found'}, status=status.HTTP_404_NOT_FOUND)
+
         team.total_scores = (team.total_scores or 0) + max(0, points)
         team.save(update_fields=['total_scores'])
+        
+        # Добавляем команду как сыгравшую в PlanTeamQuiz
+        if plan_team_quiz_id:
+            try:
+                plan_team_quiz = PlanTeamQuiz.objects.get(id=plan_team_quiz_id)
+                plan_team_quiz.teams_played.add(team)
+            except PlanTeamQuiz.DoesNotExist:
+                pass
+
         return Response({'total_scores': team.total_scores})
 
 

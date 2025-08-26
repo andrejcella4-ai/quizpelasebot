@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Quiz, Question, Team, TelegramPlayer, PlanTeamQuiz, BotText
+from .models import Quiz, Question, Team, TelegramPlayer, PlanTeamQuiz, BotText, Config
 
 
 class AuthPlayerSerializer(serializers.Serializer):
@@ -21,6 +21,7 @@ class QuizInfoSerializer(serializers.ModelSerializer):
 class QuestionListSerializer(serializers.ModelSerializer):
     wrong_answers = serializers.SerializerMethodField()
     correct_answer = serializers.SerializerMethodField()
+    correct_answers = serializers.SerializerMethodField()
     time_to_answer = serializers.SerializerMethodField()
     image_url = serializers.SerializerMethodField()
 
@@ -29,10 +30,12 @@ class QuestionListSerializer(serializers.ModelSerializer):
         fields = (
             'id',
             'text',
+            'comment',
             'question_type',
             'game_use_type',
             'wrong_answers',
             'correct_answer',
+            'correct_answers',
             'time_to_answer',
             'image_url'
         )
@@ -43,6 +46,12 @@ class QuestionListSerializer(serializers.ModelSerializer):
     def get_correct_answer(self, obj):
         ans = obj.questionanswer_set.filter(is_right=True).first()
         return ans.text if ans else ''
+
+    def get_correct_answers(self, obj):
+        ans = obj.questionanswer_set.filter(is_right=True).first()
+        config = Config.objects.filter(name='correct_answers_separator').first()
+        
+        return [a.lower().strip() for a in ans.text.split(config.value if config else ';')] if ans else []
 
     def get_time_to_answer(self, obj):
         # Берем из контекста, куда передается значение из связанного Quiz
@@ -73,7 +82,7 @@ class PlanTeamQuizSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = PlanTeamQuiz
-        fields = ('id', 'quiz', 'quiz_name', 'scheduled_datetime')
+        fields = ('id', 'quiz', 'quiz_name', 'always_active', 'scheduled_datetime')
 
 
 class TelegramPlayerUpdateSerializer(serializers.ModelSerializer):
@@ -105,3 +114,10 @@ class BotTextDictSerializer(serializers.ModelSerializer):
             return data
         text_name = data.pop('text_name')
         return {text_name: data}
+
+
+class ConfigSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = Config
+        fields = ('id', 'name', 'value')

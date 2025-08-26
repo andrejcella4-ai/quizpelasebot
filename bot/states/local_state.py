@@ -50,6 +50,7 @@ class GameState:
     current_correct_answer: str | None = None
     # prevent duplicate Next transitions
     next_in_progress: bool = False
+    plan_team_quiz_id: int | None = None
 
 
 def get_game_state(game_key: str) -> GameState:
@@ -68,6 +69,3 @@ def _get_game_key_for_chat(chat_id: int) -> str | None:
         if key.startswith(chat_prefix):
             return key
     return None
-
-
-REGISTRATION_DURATION = 20  # seconds

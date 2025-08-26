@@ -47,10 +47,10 @@ async def players_game_end_bulk(results: list[dict], system_token: str) -> dict:
             return await resp.json()
 
 
-async def team_game_end(team_id: int, points: int, system_token: str) -> dict:
+async def team_game_end(team_id: int, points: int, plan_team_quiz_id: int, system_token: str) -> dict:
     headers = {'Authorization': f'Token {system_token}'}
     async with aiohttp.ClientSession(headers=headers) as session:
-        async with session.post(f'{BASE_URL}/team/game-end/{team_id}/', json={'points': points}) as resp:
+        async with session.post(f'{BASE_URL}/team/game-end/{team_id}/', json={'points': points, 'plan_team_quiz_id': plan_team_quiz_id}) as resp:
             resp.raise_for_status()
             return await resp.json()
 
@@ -63,9 +63,10 @@ async def player_update_notifications(telegram_id: int, notification_is_on: bool
             return await resp.json()
 
 
-async def list_plan_team_quizzes() -> list[dict]:
-    async with aiohttp.ClientSession() as session:
-        async with session.get(f'{BASE_URL}/game/plan-game/list/') as resp:
+async def list_plan_team_quizzes(chat_username: str, token: str) -> list[dict]:
+    headers = {'Authorization': f'Token {token}'}
+    async with aiohttp.ClientSession(headers=headers) as session:
+        async with session.get(f'{BASE_URL}/game/plan-game/list/{chat_username}/') as resp:
             resp.raise_for_status()
             return await resp.json()
 
@@ -194,5 +195,13 @@ async def get_rotated_questions_dm(system_token: str, chat_id: int, size: int, t
     }
     async with aiohttp.ClientSession(headers=headers) as session:
         async with session.post(f'{BASE_URL}/question/rotated/', json=payload) as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+
+async def get_configs(system_token: str) -> list[dict]:
+    headers = {'Authorization': f'Token {system_token}'}
+    async with aiohttp.ClientSession(headers=headers) as session:
+        async with session.get(f'{BASE_URL}/configs/') as resp:
             resp.raise_for_status()
             return await resp.json()

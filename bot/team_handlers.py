@@ -9,7 +9,7 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.filters import Command
 
-from api_client import get_quiz_info, get_questions, auth_player, get_team, get_quiz_list, list_plan_team_quizzes, team_leaderboard, get_rotated_questions_dm
+from api_client import get_quiz_info, get_questions, auth_player, get_team, get_quiz_list, list_plan_team_quizzes, team_leaderboard, get_rotated_questions_dm, get_configs
 from keyboards import (
     main_menu_keyboard,
     registration_dm_keyboard,
@@ -27,12 +27,13 @@ from helpers import (
     get_today_games_avaliable,
     get_nearest_game_avaliable,
     question_transition_delay,
+    finalize_game,
+    move_to_next_question,
 )
 from states.local_state import (
     get_game_state,
     _get_game_key_for_chat,
     _games_state,
-    REGISTRATION_DURATION,
 )
 from static.answer_texts import TextStatics
 from states.fsm import SoloGameStates
@@ -174,6 +175,7 @@ async def start_registration(callback: types.CallbackQuery, state: FSMContext):
 
     mode = "team" if callback.data == "game:team" else "dm"
     chat_username: str = callback.message.chat.username or str(callback.message.chat.id)
+    game_started_username: str = callback.from_user.username or str(callback.from_user.first_name)
 
     # Авторизуем игрока для получения токена
     token = await auth_player(
@@ -197,15 +199,15 @@ async def start_registration(callback: types.CallbackQuery, state: FSMContext):
 
     # Для командного режима проверим наличие плана на сегодня
     if mode == "team":
-        plans = await list_plan_team_quizzes()
+        plans = await list_plan_team_quizzes(chat_username, token)
         today_games_avaliable = get_today_games_avaliable(plans)
         nearest_game_avaliavle = get_nearest_game_avaliable(plans)
 
-        if not plans:
+        if len(plans) == 0:
             await callback.message.answer("📆 Нет запланированной викторины в режиме кооперации на ближайшие дни.")
             return
 
-        if not today_games_avaliable and nearest_game_avaliavle:
+        if len(today_games_avaliable) == 0 and nearest_game_avaliavle is not None:
             # Преобразуем строку datetime в объект datetime и форматируем для России
             scheduled_datetime = datetime.fromisoformat(nearest_game_avaliavle['scheduled_datetime'].replace('Z', '+00:00'))
             formatted_datetime = scheduled_datetime.strftime("%d.%m.%Y %H:%M")
@@ -220,12 +222,15 @@ async def start_registration(callback: types.CallbackQuery, state: FSMContext):
         # Запрашиваем список квизов выбранного типа
         quizzes = await get_quiz_list(mode)
 
+    configs = await get_configs(os.getenv('BOT_TOKEN'))
+    registration_duration = int([config['value'] for config in configs if config['name'] == 'seconds_before_team_game_start'][0])
+
     # Временно используем chat.id как ключ до выбора темы
     game_key = f"{callback.message.chat.id}_pending"
     game_state = get_game_state(game_key)
     game_state.mode = mode
     game_state.status = "reg"
-    game_state.registration_ends_at = datetime.utcnow() + timedelta(seconds=REGISTRATION_DURATION)
+    game_state.registration_ends_at = datetime.utcnow() + timedelta(seconds=registration_duration)
     game_state.available_quizzes = quizzes
     game_state.quiz_id = None
     game_state.quiz_name = None
@@ -236,7 +241,7 @@ async def start_registration(callback: types.CallbackQuery, state: FSMContext):
     if mode == "dm":
         # ------ старая логика регистрации DM ------
         # Формируем текст регистрации как в примере
-        reg_text = TextStatics.dm_registration_message(list(game_state.players), REGISTRATION_DURATION)
+        reg_text = TextStatics.dm_registration_message(list(game_state.players), registration_duration)
         keyboard = registration_dm_keyboard()
 
         sent_msg = await callback.message.answer(reg_text, reply_markup=keyboard)
@@ -257,10 +262,13 @@ async def start_registration(callback: types.CallbackQuery, state: FSMContext):
                 
                 # Получаем вопросы через новую ротационную систему для DM игр
                 system_token = os.getenv('BOT_TOKEN')
+                configs = await get_configs(system_token)
+                amount_questions = int([config['value'] for config in configs if config['name'] == 'amount_questions_dm'][0])
+
                 questions_data = await get_rotated_questions_dm(
                     system_token=system_token,
                     chat_id=callback.message.chat.id,
-                    size=quiz['amount_questions'],
+                    size=amount_questions,
                     time_to_answer=quiz['time_to_answer']
                 )
                 
@@ -300,16 +308,16 @@ async def start_registration(callback: types.CallbackQuery, state: FSMContext):
     else:
         # ----- Командный режим с таймером регистрации -----
         team_name = team_data["name"] if team_data else "Команда"
-        game_state.teams = {team_name: [team_data.get("captain_username") if team_data else None]}
-        game_state.captains = {team_name: team_data.get("captain_username") if team_data else None}
+        game_state.teams = {team_name: [game_started_username]}
+        game_state.captains = {team_name: game_started_username}
         try:
             game_state.team_id = team_data.get("id") if team_data else None
         except Exception:
             game_state.team_id = None
-        
+
         # Показываем сообщение о выборе плана/темы
         await callback.message.answer("📆 Выберите запланированную викторину:", reply_markup=team_plans_keyboard(game_state.available_quizzes))
-        
+
         # Таймер подготовки здесь не запускаем, запустим после выбора плана
         await state.set_state(SoloGameStates.WAITING_CONFIRM)
 
@@ -333,16 +341,7 @@ async def start_team_game_early(callback: types.CallbackQuery, state: FSMContext
     if game_state.timer_task:
         game_state.timer_task.cancel()
         game_state.timer_task = None
-    
-    # Загружаем вопросы для командной игры (если план ещё не выбран — предложим выбор)
-    token = await auth_player(
-        telegram_id=callback.from_user.id,
-        first_name=callback.from_user.first_name,
-        last_name=callback.from_user.last_name or "",
-        username=callback.from_user.username,
-        phone=None,
-        lang_code=callback.from_user.language_code,
-    )
+
     if not game_state.quiz_id:
         # показать выбор планов
         await callback.message.edit_text(
@@ -350,8 +349,12 @@ async def start_team_game_early(callback: types.CallbackQuery, state: FSMContext
             reply_markup=team_plans_keyboard(game_state.available_quizzes),
         )
         return
+
+    configs = await get_configs(os.getenv('BOT_TOKEN'))
+    registration_duration = int([config['value'] for config in configs if config['name'] == 'seconds_before_team_game_start'][0])
+
     # Показать сообщение подготовки (без мгновенного старта)
-    prep_text = TextStatics.team_prep_message(game_state.quiz_name or "Командная викторина", list(game_state.captains.values())[0], REGISTRATION_DURATION)
+    prep_text = TextStatics.team_prep_message(game_state.quiz_name or "Командная викторина", list(game_state.captains.values())[0], registration_duration)
     # Сохраним message_id для последующего редактирования
     try:
         await callback.message.edit_text(prep_text)
@@ -363,7 +366,6 @@ async def start_team_game_early(callback: types.CallbackQuery, state: FSMContext
             sent = await callback.message.answer(prep_text)
             game_state.message_id = sent.message_id
     
-    # Через REGISTRATION_DURATION секунд стартуем (как on_expire)
     async def _delayed_start():
         try:
             token = await auth_player(
@@ -393,7 +395,7 @@ async def start_team_game_early(callback: types.CallbackQuery, state: FSMContext
         except Exception:
             pass
     
-    game_state.timer_task = await schedule_registration_end(datetime.utcnow() + timedelta(seconds=REGISTRATION_DURATION), _delayed_start)
+    game_state.timer_task = await schedule_registration_end(datetime.utcnow() + timedelta(seconds=registration_duration), _delayed_start)
 
 
 # --- Выбор плана командной игры ---
@@ -418,9 +420,13 @@ async def choose_team_plan(callback: types.CallbackQuery, state: FSMContext):
     # Из плана берем quiz id
     game_state.quiz_id = plan.get("quiz")
     game_state.quiz_name = plan.get("quiz_name") or str(game_state.quiz_id)
+    game_state.plan_team_quiz_id = plan.get("id")
+
+    configs = await get_configs(os.getenv('BOT_TOKEN'))
+    registration_duration = int([config['value'] for config in configs if config['name'] == 'seconds_before_team_game_start'][0])
 
     # Показать сообщение подготовки с таймером
-    prep_text = TextStatics.team_prep_message(game_state.quiz_name or "Командная викторина", list(game_state.captains.values())[0], REGISTRATION_DURATION)
+    prep_text = TextStatics.team_prep_message(game_state.quiz_name or "Командная викторина", list(game_state.captains.values())[0], registration_duration)
     try:
         await callback.message.edit_text(prep_text)
         game_state.message_id = callback.message.message_id
@@ -459,7 +465,7 @@ async def choose_team_plan(callback: types.CallbackQuery, state: FSMContext):
             await start_game_questions(callback, game_state)
         except Exception:
             pass
-    game_state.timer_task = await schedule_registration_end(datetime.utcnow() + timedelta(seconds=REGISTRATION_DURATION), _delayed_start_after_choose)
+    game_state.timer_task = await schedule_registration_end(datetime.utcnow() + timedelta(seconds=registration_duration), _delayed_start_after_choose)
 
 
 # -------- регистрация участников / команд --------
@@ -519,10 +525,13 @@ async def reg_end_dm(callback: types.CallbackQuery):
         
         # Получаем вопросы через новую ротационную систему для DM игр
         system_token = os.getenv('BOT_TOKEN')
+        configs = await get_configs(system_token)
+        amount_questions = int([config['value'] for config in configs if config['name'] == 'amount_questions_dm'][0])
+
         questions_data = await get_rotated_questions_dm(
             system_token=system_token,
             chat_id=callback.message.chat.id,
-            size=quiz['amount_questions'],
+            size=amount_questions,
             time_to_answer=quiz['time_to_answer']
         )
         
@@ -575,7 +584,7 @@ async def answer_variant_callback(callback: types.CallbackQuery):
         # В командном режиме может отвечать только капитан
 
         if list(game_state.captains.values())[0] != username:
-            await callback.answer(TextStatics.captain_only_can_answer())
+            await callback.message.answer(TextStatics.captain_only_can_answer(username))
             return
     else:
         # DM: только зарегистрированные игроки
@@ -613,9 +622,6 @@ async def answer_variant_callback(callback: types.CallbackQuery):
         variant_text,
         callback
     )
-
-
-
 
 
 @router.message(
@@ -660,6 +666,7 @@ async def answer_text_message(message: types.Message):
                 break
         
         if not user_team or game_state.captains.get(user_team) != username:
+            await message.answer(TextStatics.captain_only_can_answer(username))
             return
     
     # Проверяем, что игрок еще не отвечал
@@ -721,7 +728,10 @@ async def next_question_dm_team(callback: types.CallbackQuery):
 
         # ВНУТРИ ЛОКА, НЕ КАК ЗАДАЧА!
         try:
-            asyncio.create_task(question_transition_delay(callback.message.bot, callback.message.chat.id, game_state))
+            if game_state.current_q_idx < len(game_state.questions) - 1:
+                asyncio.create_task(question_transition_delay(callback.message.bot, callback.message.chat.id, game_state))
+            else:
+                await move_to_next_question(callback.message.bot, callback.message.chat.id, game_state)
         except Exception as e:
             print(f"Оибка при переходе к следующему вопросу: {e}")
 
@@ -763,7 +773,7 @@ async def finish_quiz_group(callback: types.CallbackQuery):
             pass
         game_state.timer_task = None
     # Унифицированное завершение игры
-    from helpers import finalize_game
+
     await finalize_game(callback.message.bot, callback.message.chat.id, game_state)
 
 

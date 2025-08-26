@@ -23,11 +23,13 @@ from main.views import (
     BotTextsDictView,
     BotTextsBulkUpsertView,
     RotatedQuestionListView,
+    ConfigViewSet,
 )
 
 
 router = DefaultRouter()
 router.register(r'teams', TeamViewSet, basename='team')
+router.register(r'configs', ConfigViewSet, basename='config')
 
 
 urlpatterns = [
@@ -38,7 +40,7 @@ urlpatterns = [
     path('question/list/', QuestionQuizListView.as_view(), name='question-list'),
     path('question/rotated/', RotatedQuestionListView.as_view(), name='question-rotated'),
     path('team/<str:chat_username>/', TeamByChatView.as_view(), name='team-by-chat'),
-    path('game/plan-game/list/', PlanTeamQuizListView.as_view(), name='plan-team-quiz-list'),
+    path('game/plan-game/list/<str:chat_username>/', PlanTeamQuizListView.as_view(), name='plan-team-quiz-list'),
     path('player/game-end/', PlayerGameEndView.as_view(), name='player-game-end'),
     path('team/game-end/<int:team_id>/', TeamGameEndView.as_view(), name='team-game-end'),
     path('player/<int:telegram_id>/', PlayerUpdateView.as_view(), name='player-update'),

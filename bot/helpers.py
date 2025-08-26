@@ -209,12 +209,15 @@ async def send_next_question(bot, chat_id: int, game_state: GameState):
                 # Команда: короткое сообщение и гарантированный переход дальше
                 try:
                     correct = game_state.current_correct_answer
+                    
+                    # Проверяем, является ли это последним вопросом
+                    is_last_question = (game_state.current_q_idx + 1) >= len(game_state.questions)
 
                     game_state.waiting_next = True
                     await bot.send_message(
                         chat_id,
                         "⌛️ Время вышло!\n\n" + TextStatics.show_right_answer_only(correct),
-                        reply_markup=question_result_keyboard(include_finish=False)
+                        reply_markup=question_result_keyboard(include_finish=False, is_last_question=is_last_question)
                     )
                 except Exception as e:
                     print(f"Оибка при отправке сообщения с правильным ответом для команды: {e}")
@@ -229,14 +232,19 @@ async def send_next_question(bot, chat_id: int, game_state: GameState):
                 wrong_list = sorted(list(game_state.answers_wrong))
                 not_answered_list = [p for p in sorted(list(game_state.players)) if p not in game_state.answers_right and p not in game_state.answers_wrong]
                 totals = {u: int(game_state.scores.get(u, 0)) for u in set(right_list + wrong_list)}
+                
+                # Проверяем, является ли это последним вопросом
+                is_last_question = (game_state.current_q_idx + 1) >= len(game_state.questions)
+                
                 result_text = TextStatics.dm_quiz_question_result_message(
-                    right_answer=game_state.current_correct_answer,
+                    right_answer=question.get("correct_answers", [game_state.current_correct_answer])[0],
                     not_answered=not_answered_list,
                     wrong_answers=wrong_list,
                     right_answers=right_list,
                     totals=totals,
+                    comment=question.get('comment', None),
                 )
-                await bot.send_message(chat_id, result_text, reply_markup=question_result_keyboard(include_finish=False))
+                await bot.send_message(chat_id, result_text, reply_markup=question_result_keyboard(include_finish=False, is_last_question=is_last_question))
                 # Явно включаем фазу ожидания Next (на случай гонок)
                 game_state.waiting_next = True
                 game_state.question_result_sent = True
@@ -338,8 +346,8 @@ async def finalize_game(bot, chat_id: int, game_state: GameState):
                 team_points = 0
                 if game_state.scores:
                     team_points = list(game_state.scores.values())[0]
-                if game_state.team_id is not None and team_points >= 0:
-                    await team_game_end(game_state.team_id, team_points, system_token)
+                if game_state.team_id is not None:
+                    await team_game_end(game_state.team_id, team_points, game_state.plan_team_quiz_id, system_token)
             except Exception:
                 pass
         else:
@@ -387,8 +395,11 @@ async def process_answer(bot, chat_id: int, game_state: GameState, username: str
     # Проверяем правильность ответа
     is_correct = False
 
-    correct_answer = current_question["correct_answer"].lower().strip()
-    is_correct = answer.lower().strip() == correct_answer
+    if current_question["question_type"] == QuestionTypeChoices.TEXT:
+        print("current_question", current_question)
+
+    correct_answers = [a.lower().strip() for a in current_question["correct_answers"]]
+    is_correct = answer.lower().strip() in correct_answers
 
     # Инициализируем попытки для пользователя/капитана (для TEXT вопросов)
     if current_question["question_type"] == QuestionTypeChoices.TEXT and username not in game_state.attempts_left_by_user:
@@ -422,13 +433,15 @@ async def process_answer(bot, chat_id: int, game_state: GameState, username: str
             except Exception:
                 pass
 
+            # Проверяем, является ли это последним вопросом
+            is_last_question = (game_state.current_q_idx + 1) >= len(game_state.questions)
+
             game_state.waiting_next = True
             await bot.send_message(
                 chat_id,
-                TextStatics.show_right_answer_only(current_question["correct_answer"]),
-                reply_markup=question_result_keyboard(include_finish=False)
+                TextStatics.show_right_answer_only(current_question.get("correct_answers", [game_state.current_correct_answer])[0], current_question.get('comment', None)),
+                reply_markup=question_result_keyboard(include_finish=False, is_last_question=is_last_question)
             )
-            # await move_to_next_question(bot, chat_id, game_state)
             return
         else:
             # DM режим — просто ответим на клик
@@ -441,7 +454,15 @@ async def process_answer(bot, chat_id: int, game_state: GameState, username: str
             attempts_left = game_state.attempts_left_by_user[username]
 
             # Сообщаем пользователю об оставшихся попытках
-            wrong_text = TextStatics.team_quiz_question_wrong_answer(attempts_left, current_question["correct_answer"]) if game_state.mode == "team" else TextStatics.dm_text_wrong_attempt(attempts_left, current_question["correct_answer"])
+            wrong_text = TextStatics.team_quiz_question_wrong_answer(
+                attempts_left,
+                current_question.get("correct_answers", [current_question["correct_answer"]])[0],
+                current_question.get('comment', None)
+            ) if game_state.mode == "team" else TextStatics.dm_text_wrong_attempt(
+                attempts_left,
+                current_question.get("correct_answers", [current_question["correct_answer"]])[0],
+                current_question.get('comment', None)
+            )
 
             # Если попыток больше нет
             if attempts_left <= 0:
@@ -453,9 +474,11 @@ async def process_answer(bot, chat_id: int, game_state: GameState, username: str
                         game_state.timer_task.cancel()
                         game_state.timer_task = None
 
+                    # Проверяем, является ли это последним вопросом
+                    is_last_question = (game_state.current_q_idx + 1) >= len(game_state.questions)
+                    
                     game_state.waiting_next = True
-                    await bot.send_message(chat_id, wrong_text, reply_markup=question_result_keyboard(include_finish=False))
-                    # await move_to_next_question(bot, chat_id, game_state)
+                    await bot.send_message(chat_id, wrong_text, reply_markup=question_result_keyboard(include_finish=False, is_last_question=is_last_question))
                     return
                 # В DM режиме — ждём остальных через общий механизм
             else:
@@ -475,7 +498,8 @@ async def check_if_all_answered(bot, chat_id: int, game_state: GameState):
     if game_state.is_finishing or game_state.status != "playing":
         return
     total_answered = len(game_state.answers_right) + len(game_state.answers_wrong)
-    
+    current_question = game_state.questions[game_state.current_q_idx]
+
     if game_state.mode == "dm":
         # В DM режиме ждем всех зарегистрированных игроков
         total_players = len(game_state.players)
@@ -510,15 +534,17 @@ async def check_if_all_answered(bot, chat_id: int, game_state: GameState):
 
         if game_state.mode == "team":
             try:
+                # Проверяем, является ли это последним вопросом
+                is_last_question = (game_state.current_q_idx + 1) >= len(game_state.questions)
+                
                 await bot.send_message(
                     chat_id,
-                    TextStatics.show_right_answer_only(game_state.current_correct_answer),
-                    reply_markup=question_result_keyboard(include_finish=False)
+                    TextStatics.show_right_answer_only(current_question.get('correct_answers', [game_state.current_correct_answer])[0], current_question.get('comment', None)),
+                    reply_markup=question_result_keyboard(include_finish=False, is_last_question=is_last_question)
                 )
             except Exception as e:
                 print(f"Оибка при отправке сообщения с правильным ответом для команды: {e}")
-            #if should_advance_team:
-            #    await move_to_next_question(bot, chat_id, game_state)
+
             return
 
         if should_send_dm:
@@ -526,14 +552,19 @@ async def check_if_all_answered(bot, chat_id: int, game_state: GameState):
             wrong_list = sorted(list(game_state.answers_wrong))
             not_answered_list = [p for p in sorted(list(game_state.players)) if p not in game_state.answers_right and p not in game_state.answers_wrong]
             totals = {u: int(game_state.scores.get(u, 0)) for u in set(right_list + wrong_list)}
+            
+            # Проверяем, является ли это последним вопросом
+            is_last_question = (game_state.current_q_idx + 1) >= len(game_state.questions)
+            
             result_text = TextStatics.dm_quiz_question_result_message(
-                right_answer=game_state.current_correct_answer,
+                right_answer=current_question.get('correct_answers', [game_state.current_correct_answer])[0],
                 not_answered=not_answered_list,
                 wrong_answers=wrong_list,
                 right_answers=right_list,
                 totals=totals,
+                comment=current_question.get('comment', None),
             )
-            await bot.send_message(chat_id, result_text, reply_markup=question_result_keyboard(include_finish=False))
+            await bot.send_message(chat_id, result_text, reply_markup=question_result_keyboard(include_finish=False, is_last_question=is_last_question))
 
 
 async def question_transition_delay(bot, chat_id: int, game_state: GameState, delay: int = 3):
@@ -550,6 +581,9 @@ async def schedule_question_timeout(timeout_seconds: int, on_timeout_callback, b
 
     Старые/неактуальные таймеры подавляются проверкой game_state/token.
     """
+    message_30 = None
+    message_10 = None
+
     def cancelled() -> bool:
         if not game_state:
             return False
@@ -560,13 +594,14 @@ async def schedule_question_timeout(timeout_seconds: int, on_timeout_callback, b
         return False
 
     async def timer():
+        nonlocal message_30, message_10
         try:
             # Промежуточные уведомления на 30 и 10 секунд
             if timeout_seconds > 30 and bot and chat_id:
                 await asyncio.sleep(timeout_seconds - 30)
                 if not cancelled():
                     try:
-                        await bot.send_message(chat_id, TextStatics.time_left_30())
+                        message_30 = await bot.send_message(chat_id, TextStatics.time_left_30())
                     except Exception:
                         pass
             
@@ -574,16 +609,38 @@ async def schedule_question_timeout(timeout_seconds: int, on_timeout_callback, b
                 await asyncio.sleep(20)  # Дополнительные 20 секунд до 10 секунд остатка
                 if not cancelled():
                     try:
-                        await bot.send_message(chat_id, TextStatics.time_left_10())
+                        message_10 = await bot.send_message(chat_id, TextStatics.time_left_10())
                     except Exception:
                         pass
             
             # Финальное ожидание до конца времени
             await asyncio.sleep(10)
+
+            if message_30 and bot is not None and chat_id is not None:
+                try:
+                    await bot.delete_message(chat_id, message_30.message_id)
+                except Exception:
+                    pass
+            if message_10 and bot is not None and chat_id is not None:
+                try:
+                    await bot.delete_message(chat_id, message_10.message_id)
+                except Exception:
+                    pass
+
             if not cancelled():
                 await on_timeout_callback()
         except asyncio.CancelledError:
-            pass
+            if message_30 and bot is not None and chat_id is not None:
+                try:
+                    await bot.delete_message(chat_id, message_30.message_id)
+                except Exception:
+                    pass
+            if message_10 and bot is not None and chat_id is not None:
+                try:
+                    await bot.delete_message(chat_id, message_10.message_id)
+                except Exception:
+                    pass
+
     return asyncio.create_task(timer())
 
 
@@ -742,8 +799,8 @@ def get_today_games_avaliable(plans: list[dict]) -> list[dict]:
     return [
         p for p in plans if (
             # Преобразуем строку в datetime с timezone, учитывая что DRF возвращает строку с часовым поясом
-            (plan_datetime := datetime.fromisoformat(p['scheduled_datetime'])) <= current_moscow_time and
-            plan_datetime.date() == current_moscow_time.date()
+            ((plan_datetime := datetime.fromisoformat(p['scheduled_datetime'])) <= current_moscow_time and
+            plan_datetime.date() == current_moscow_time.date()) or p['always_active'] == True
         )
     ]
 
@@ -752,4 +809,7 @@ def get_nearest_game_avaliable(plans: list[dict]) -> dict | None:
     if not plans:
         return None
 
-    return sorted(plans, key=lambda x: datetime.fromisoformat(x['scheduled_datetime']))[0]
+    filtered_plans = [p for p in plans if p['always_active'] == False]
+    nearest = sorted(filtered_plans, key=lambda x: datetime.fromisoformat(x['scheduled_datetime']))
+
+    return nearest[0] if nearest else None

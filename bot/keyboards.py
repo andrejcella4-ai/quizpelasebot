@@ -30,12 +30,17 @@ def private_menu_keyboard() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def question_result_keyboard(include_finish: bool = True) -> InlineKeyboardMarkup:
+def question_result_keyboard(include_finish: bool = True, is_last_question: bool = False) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
 
     builder.button(text='👍', callback_data='like')
     builder.button(text='👎', callback_data='dislike')
-    builder.button(text='➡️ Следующий вопрос', callback_data='next_question')
+
+    if is_last_question:
+        builder.button(text='Узнать результаты игры', callback_data='next_question')
+    else:
+        builder.button(text='➡️ Следующий вопрос', callback_data='next_question')
+
     if include_finish:
         builder.button(text='🏁 Завершить викторину', callback_data='finish_quiz')
         builder.adjust(2, 1, 1)

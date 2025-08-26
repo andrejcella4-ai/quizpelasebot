@@ -25,6 +25,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'corsheaders',
+    'import_export',
     'main.apps.MainConfig',
     'rest_framework.authtoken',
 ]

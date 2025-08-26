@@ -8,14 +8,13 @@ from aiogram.fsm.context import FSMContext
 from states.fsm import SoloGameStates
 from api_client import (
     auth_player,
-    get_quiz_info,
-    get_questions,
     get_quiz_list,
     player_game_end,
     player_leaderboard,
     player_update_notifications,
     get_rotated_questions_solo,
     get_bot_texts,
+    get_configs,
 )
 from keyboards import main_menu_keyboard, confirm_start_keyboard, create_variant_keyboard, private_menu_keyboard, question_result_keyboard, quiz_theme_keyboard, finish_quiz_keyboard
 from static.answer_texts import TextStatics
@@ -23,51 +22,74 @@ from static import answer_texts
 from helpers import fetch_question_and_cancel, load_and_send_image
 from static.choices import QuestionTypeChoices
 
-from states.local_state import (
-    get_game_state,
-    _get_game_key_for_chat,
-)
-from helpers import move_to_next_question
-from keyboards import notify_keyboard
-
 
 router = Router()
 
 
 def schedule_question_timeout_solo(delay: int, state: FSMContext, index: int, q: dict, message: types.Message, send_question_fn) -> asyncio.Task:
     async def timer():
+        message_30 = None
+        message_10 = None
         try:
             # Промежуточные уведомления на 30 и 10 секунд
             if delay > 30:
                 await asyncio.sleep(delay - 30)
                 curr_data = await state.get_data()
                 if (await state.get_state()) == SoloGameStates.WAITING_ANSWER and curr_data.get('current_index', 0) == index:
-                    await message.answer(TextStatics.time_left_30())
+                    message_30 = await message.answer(TextStatics.time_left_30())
             
             if delay > 10:
                 await asyncio.sleep(20)  # Дополнительные 20 секунд до 10 секунд остатка
                 curr_data = await state.get_data()
                 if (await state.get_state()) == SoloGameStates.WAITING_ANSWER and curr_data.get('current_index', 0) == index:
-                    await message.answer(TextStatics.time_left_10())
+                    message_10 = await message.answer(TextStatics.time_left_10())
             
             # Финальное ожидание до конца времени
             await asyncio.sleep(10)
             curr_data = await state.get_data()
             if (await state.get_state()) == SoloGameStates.WAITING_ANSWER and curr_data.get('current_index', 0) == index:
+                # Проверяем, является ли это последним вопросом
+                questions = curr_data.get('questions', [])
+                is_last_question = (index + 1) >= len(questions)
+                
                 # В соло показываем тот же подробный формат, но без списков участников
                 result_text = TextStatics.dm_quiz_question_result_message(
-                    right_answer=q["correct_answer"],
+                    right_answer=q.get("correct_answers", [q["correct_answer"]])[0],
                     not_answered=[],
                     wrong_answers=[],
                     right_answers=[],
+                    comment=q.get('comment', None),
                 )
-                await message.answer(result_text, reply_markup=question_result_keyboard())
+                await message.answer(result_text, reply_markup=question_result_keyboard(is_last_question=is_last_question))
                 await state.update_data(incorrect=curr_data.get('incorrect', 0) + 1)
                 # Критично: после тайм-аута двигаем индекс на следующий вопрос
                 await state.update_data(current_index=index + 1)
                 await state.set_state(SoloGameStates.WAITING_NEXT)
+            
+            # Удаляем уведомления о времени после завершения таймера
+            if message_30:
+                try:
+                    await message.bot.delete_message(message.chat.id, message_30.message_id)
+                except Exception:
+                    pass
+            if message_10:
+                try:
+                    await message.bot.delete_message(message.chat.id, message_10.message_id)
+                except Exception:
+                    pass
+
         except asyncio.CancelledError:
-            pass
+            # Удаляем уведомления о времени при отмене таймера (пользователь ответил)
+            if message_30:
+                try:
+                    await message.bot.delete_message(message.chat.id, message_30.message_id)
+                except Exception:
+                    pass
+            if message_10:
+                try:
+                    await message.bot.delete_message(message.chat.id, message_10.message_id)
+                except Exception:
+                    pass
 
     return asyncio.create_task(timer())
 
@@ -262,13 +284,17 @@ async def callback_solo(callback: types.CallbackQuery, state: FSMContext):
     
     # Получаем вопросы через новую ротационную систему
     system_token = os.getenv('SYSTEM_TOKEN')
+
+    configs = await get_configs(system_token)
+    amount_questions = int([config['value'] for config in configs if config['name'] == 'amount_questions_solo'][0])
+
     questions_data = await get_rotated_questions_solo(
         system_token=system_token,
         telegram_id=callback.from_user.id,
-        size=quiz['amount_questions'],
+        size=amount_questions,
         time_to_answer=quiz['time_to_answer']
     )
-    
+
     if not questions_data.get('questions'):
         await callback.message.answer("Нет доступных вопросов для solo игр")
         return
@@ -309,6 +335,11 @@ async def answer_callback(callback: types.CallbackQuery, state: FSMContext):
     options = (await state.get_data()).get('current_options') or (q['wrong_answers'] + [q['correct_answer']])
     is_correct = 0 <= selected_idx < len(options) and options[selected_idx] == q['correct_answer']
     username = callback.from_user.username or str(callback.from_user.id)
+    
+    # Проверяем, является ли это последним вопросом
+    questions = data.get('questions', [])
+    is_last_question = (index + 1) >= len(questions)
+    
     if is_correct:
         # Формат результата как в DM, с указанием текущих баллов игрока
         totals = {username: (data.get('correct', 0) + 1)}
@@ -318,8 +349,9 @@ async def answer_callback(callback: types.CallbackQuery, state: FSMContext):
             wrong_answers=[],
             right_answers=[username],
             totals=totals,
+            comment=q.get('comment', None),
         )
-        await callback.message.answer(result_text, reply_markup=question_result_keyboard())
+        await callback.message.answer(result_text, reply_markup=question_result_keyboard(is_last_question=is_last_question))
         await state.update_data(correct=data.get('correct', 0) + 1)
     else:
         totals = {username: (data.get('correct', 0))}
@@ -329,8 +361,9 @@ async def answer_callback(callback: types.CallbackQuery, state: FSMContext):
             wrong_answers=[username],
             right_answers=[],
             totals=totals,
+            comment=q.get('comment', None),
         )
-        await callback.message.answer(result_text, reply_markup=question_result_keyboard())
+        await callback.message.answer(result_text, reply_markup=question_result_keyboard(is_last_question=is_last_question))
         await state.update_data(incorrect=data.get('incorrect', 0) + 1)
 
     await state.update_data(current_index=index + 1)
@@ -395,20 +428,27 @@ async def text_answer(message: types.Message, state: FSMContext):
     if q['question_type'] != QuestionTypeChoices.TEXT:
         return
 
+    # Проверяем, является ли это последним вопросом
+    questions = data.get('questions', [])
+    is_last_question = (index + 1) >= len(questions)
+
     # реализуем механику 2 попыток
     attempts_left = data.get('attempts_left', 2)
-    if user_answer.lower().strip() == q['correct_answer'].lower().strip():
+    correct_answers = [a.lower().strip() for a in q['correct_answers']]
+
+    if user_answer.lower().strip() in correct_answers:
         # Показать DM-формат результата для соло
         username = message.from_user.username or str(message.from_user.id)
         totals = {username: (data.get('correct', 0) + 1)}
         result_text = TextStatics.dm_quiz_question_result_message(
-            right_answer=q["correct_answer"],
+            right_answer=user_answer,
             not_answered=[],
             wrong_answers=[],
             right_answers=[username],
             totals=totals,
+            comment=q.get('comment', None),
         )
-        await message.answer(result_text, reply_markup=question_result_keyboard())
+        await message.answer(result_text, reply_markup=question_result_keyboard(is_last_question=is_last_question))
         await state.update_data(correct=data.get('correct', 0) + 1)
         await state.update_data(current_index=index + 1)
         await state.set_state(SoloGameStates.WAITING_NEXT)
@@ -418,19 +458,20 @@ async def text_answer(message: types.Message, state: FSMContext):
             username = message.from_user.username or str(message.from_user.id)
             totals = {username: (data.get('correct', 0))}
             result_text = TextStatics.dm_quiz_question_result_message(
-                right_answer=q["correct_answer"],
+                right_answer=q["correct_answers"][0],
                 not_answered=[],
                 wrong_answers=[username],
                 right_answers=[],
                 totals=totals,
+                comment=q.get('comment', None),
             )
-            await message.answer(result_text, reply_markup=question_result_keyboard())
+            await message.answer(result_text, reply_markup=question_result_keyboard(is_last_question=is_last_question))
             await state.update_data(incorrect=data.get('incorrect', 0) + 1, current_index=index + 1)
             # Автопереход к следующему вопросу без ожидания кнопки
             await send_question(message, state)
         else:
             await state.update_data(attempts_left=attempts_left)
-            await message.answer(TextStatics.dm_text_wrong_attempt(attempts_left, q["correct_answer"]))
+            await message.answer(TextStatics.dm_text_wrong_attempt(attempts_left, q.get("correct_answers", [q["correct_answer"]])[0]))
 
 
 @router.callback_query(lambda c: c.data == 'next_question' and c.message.chat.type == 'private')

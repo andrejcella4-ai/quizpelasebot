@@ -85,7 +85,7 @@ class Question(models.Model):
 
     text = models.TextField(verbose_name='Текст вопроса')
     difficulty = models.PositiveSmallIntegerField(default=1, verbose_name='Сложность') # from 1 to 5
-    topics = models.ManyToManyField(Topic, related_name='questions', verbose_name='Темы')
+    topics = models.ManyToManyField(Topic, related_name='questions', verbose_name='Темы', blank=True)
     comment = models.TextField(blank=True, null=True, verbose_name='Комментарий')
     image = models.ImageField(upload_to='questions/', blank=True, null=True, verbose_name='Изображение')
 
@@ -184,11 +184,18 @@ class Quiz(models.Model):
 
 class PlanTeamQuiz(models.Model):
     quiz = models.ForeignKey('Quiz', on_delete=models.CASCADE, related_name='planned_team_quizzes', verbose_name='Квиз')
-    scheduled_datetime = models.DateTimeField(verbose_name='Время проведения')
+    scheduled_datetime = models.DateTimeField(verbose_name='Время проведения', blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='Создано')
+    always_active = models.BooleanField(default=False, verbose_name='Всегда активен')
+    send_notification = models.BooleanField(default=True, verbose_name='Отправить уведомление в чаты команд')
+
+    teams_played = models.ManyToManyField('Team', related_name='played_team_quizzes', verbose_name='Команды, сыгравшие в эту игру', blank=True)
 
     def __str__(self):
-        return f"{self.quiz.name} @ {self.scheduled_datetime.isoformat()}"
+        name = self.quiz.name
+        if self.scheduled_datetime:
+            name += f" @ {self.scheduled_datetime.isoformat()}"
+        return name
 
     class Meta:
         verbose_name = 'Запланированная командная игра'
@@ -222,3 +229,12 @@ class BotText(models.Model):
     class Meta:
         verbose_name = 'Текст бота'
         verbose_name_plural = 'Тексты бота'
+
+
+class Config(models.Model):
+    name = models.CharField(max_length=255, verbose_name='Название', unique=True)
+    value = models.CharField(max_length=255, verbose_name='Значение')
+
+    class Meta:
+        verbose_name = 'Настройка'
+        verbose_name_plural = 'Настройки'
