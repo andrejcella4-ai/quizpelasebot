@@ -81,6 +81,17 @@ class QuestionResource(resources.ModelResource):
         report_skipped = True
 
 
+class QuestionAnswerResource(resources.ModelResource):
+    """Ресурс для импорта/экспорта ответов на вопросы"""
+    
+    class Meta:
+        model = QuestionAnswer
+        fields = ('id', 'text', 'question', 'is_right')
+        export_order = ('id', 'text', 'question', 'is_right')
+        skip_unchanged = True
+        report_skipped = True
+
+
 @admin.register(Question)
 class QuestionAdmin(ImportExportModelAdmin):
     resource_classes = [QuestionResource]  # Изменено с resource_class на resource_classes
@@ -95,7 +106,8 @@ class QuestionAdmin(ImportExportModelAdmin):
 
 
 @admin.register(QuestionAnswer)
-class QuestionAnswerAdmin(admin.ModelAdmin):
+class QuestionAnswerAdmin(ImportExportModelAdmin):
+    resource_classes = [QuestionAnswerResource]
     list_display = ('id', 'text', 'question', 'is_right')
     list_filter = ('is_right',)
     search_fields = ('text',)

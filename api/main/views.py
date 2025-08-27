@@ -365,6 +365,64 @@ class PlayerLeaderboardView(APIView):
             }
         return Response({'entries': serializer.data, 'current': current})
 
+    def post(self, request):
+        """Лидерборд среди конкретных пользователей по username"""
+        usernames = request.data.get('usernames', [])
+        current_user_username = request.data.get('current_user_username', None)
+
+        if not isinstance(usernames, list) or not usernames:
+            return Response({'error': 'usernames list is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Фильтруем игроков по username (убираем @ если есть)
+        clean_usernames = []
+        for username in usernames:
+            if isinstance(username, str):
+                clean_username = username.lstrip('@').lower()
+                if clean_username:
+                    clean_usernames.append(clean_username)
+
+        if not clean_usernames:
+            return Response({'error': 'No valid usernames provided'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Получаем игроков по username и сортируем по total_xp
+        qs = TelegramPlayer.objects.filter(
+            username__in=clean_usernames
+        ).order_by('-total_xp')
+
+        current_player = qs.get(username=current_user_username)
+
+        # Формируем данные для ответа
+        entries = []
+        for player in qs:
+            entries.append({
+                'username': player.username or str(player.telegram_id),
+                'total_xp': player.total_xp
+            })
+
+        # Позиция текущего пользователя среди этих игроков
+        current = None
+        if isinstance(request.user, TelegramPlayer):
+            try:
+                current_user_pos = None
+                for idx, player in enumerate(qs, 1):
+                    if player.username == current_player.username:
+                        current_user_pos = idx
+                        break
+
+                if current_user_pos:
+                    current = {
+                        'position': current_user_pos,
+                        'total': qs.count(),
+                        'streak': current_player.current_streak,
+                    }
+            except Exception:
+                pass
+
+        top_5 = entries[:5]
+
+        serializer = LeaderboardEntrySerializer(top_5, many=True)
+        return Response({'entries': serializer.data, 'current': current})
+
 
 class TeamLeaderboardView(APIView):
     permission_classes = [permissions.IsAuthenticated]

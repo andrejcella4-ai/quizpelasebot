@@ -593,3 +593,10 @@ class TextStatics:
             "⏱️ Следующий вопрос появится через 3 секунды"
         )
         return _t('question_transition_delay', default)
+
+    @staticmethod
+    def use_stats_in_group_chats() -> str:
+        default = (
+            "📊 Команда /stats должна использоваться в групповых чатах для показа рейтинга участников чата."
+        )
+        return _t('use_stats_in_group_chats', default)

@@ -9,6 +9,11 @@ import pytz
 
 from aiogram import types
 from aiogram.fsm.context import FSMContext
+from telethon import TelegramClient
+from telethon.sessions import MemorySession
+
+from contextlib import asynccontextmanager
+from typing import AsyncGenerator
 
 from states.fsm import SoloGameStates
 from states.local_state import GameState, get_game_state, _get_game_key_for_chat, _games_state
@@ -813,3 +818,37 @@ def get_nearest_game_avaliable(plans: list[dict]) -> dict | None:
     nearest = sorted(filtered_plans, key=lambda x: datetime.fromisoformat(x['scheduled_datetime']))
 
     return nearest[0] if nearest else None
+
+
+
+@asynccontextmanager
+async def get_telethon_client() -> AsyncGenerator[TelegramClient, None]:
+    """
+    Контекстный менеджер для Telethon клиента.
+
+    Использование:
+        async with get_telethon_client() as client:
+            # Используем client
+            participants = await client.get_participants(chat_id)
+    """
+    client = None
+    try:
+        client = TelegramClient(
+            MemorySession(),
+            api_id=os.getenv('TELETHON_API_ID'),
+            api_hash=os.getenv('TELETHON_API_HASH'),
+        )
+
+        # Подключаемся с bot token
+        await client.start(bot_token=os.getenv('BOT_TOKEN'))
+
+        yield client
+
+    except Exception as e:
+        print(f"Error with Telethon client: {e}")
+        raise
+    finally:
+        # Всегда закрываем соединение
+        if client and client.is_connected():
+            await client.disconnect()
+

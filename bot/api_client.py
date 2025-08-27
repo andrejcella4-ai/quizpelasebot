@@ -71,12 +71,21 @@ async def list_plan_team_quizzes(chat_username: str, token: str) -> list[dict]:
             return await resp.json()
 
 
-async def player_leaderboard(token: str) -> dict:
+async def player_leaderboard(token: str, usernames: List[str] = None, current_user_username: str | None = None) -> dict:
+    """Получить лидерборд игроков. Если usernames указан, то только среди этих пользователей."""
     headers = {'Authorization': f'Token {token}'}
     async with aiohttp.ClientSession(headers=headers) as session:
-        async with session.get(f'{BASE_URL}/player/leaderboard/') as resp:
-            resp.raise_for_status()
-            return await resp.json()
+        if usernames and current_user_username:
+            # POST запрос с списком username
+            payload = {'usernames': usernames, 'current_user_username': current_user_username}
+            async with session.post(f'{BASE_URL}/player/leaderboard/', json=payload) as resp:
+                resp.raise_for_status()
+                return await resp.json()
+        else:
+            # GET запрос для общего лидерборда
+            async with session.get(f'{BASE_URL}/player/leaderboard/') as resp:
+                resp.raise_for_status()
+                return await resp.json()
 
 
 async def team_leaderboard(token: str, chat_username: str) -> dict:

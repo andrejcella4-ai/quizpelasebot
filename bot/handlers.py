@@ -19,7 +19,7 @@ from api_client import (
 from keyboards import main_menu_keyboard, confirm_start_keyboard, create_variant_keyboard, private_menu_keyboard, question_result_keyboard, quiz_theme_keyboard, finish_quiz_keyboard
 from static.answer_texts import TextStatics
 from static import answer_texts
-from helpers import fetch_question_and_cancel, load_and_send_image
+from helpers import fetch_question_and_cancel, load_and_send_image, get_telethon_client
 from static.choices import QuestionTypeChoices
 
 
@@ -174,8 +174,31 @@ async def start_command(message: types.Message, state: FSMContext):
     await message.answer(TextStatics.get_start_message(username))
 
 
+async def get_chat_member_usernames(bot, chat_id: int) -> list[str]:
+    try:
+        usernames = []
+
+        async with get_telethon_client() as client:
+            async for participant in client.iter_participants(chat_id):
+                if participant.username and not participant.bot:
+                    usernames.append(participant.username.lower())
+
+        return usernames
+
+    except Exception as e:
+        for admin_user in os.getenv('ADMIN_USERS', '').split(' '):
+            await bot.send_message(admin_user, f"Ошибка при получении списка участников чата с помощью Telethon: {e}")
+
+        return []
+
+
 @router.message(Command('stats'))
 async def stats_command(message: types.Message):
+    # Проверяем, что команда запущена в чате (не в ЛС)
+    if message.chat.type == 'private':
+        await message.answer(TextStatics.use_stats_in_group_chats())
+        return
+
     token = await auth_player(
         telegram_id=message.from_user.id,
         first_name=message.from_user.first_name,
@@ -183,7 +206,16 @@ async def stats_command(message: types.Message):
         username=message.from_user.username,
         lang_code=message.from_user.language_code,
     )
-    data = await player_leaderboard(token)
+
+    # Получаем список username участников чата
+    chat_usernames = await get_chat_member_usernames(message.bot, message.chat.id)
+
+    # Получаем лидерборд среди участников этого чата
+    data = await player_leaderboard(
+        token,
+        usernames=chat_usernames,
+        current_user_username=str(message.from_user.username) or str(message.from_user.id)
+    )
     entries = data.get('entries', [])
     current = data.get('current') or {}
 
@@ -201,43 +233,40 @@ async def stats_command(message: types.Message):
 
     lines: list[str] = []
     lines.append('🏆 Ваша статистика в общем рейтинге')
-    if pos and total:
-        lines.append('\n📊 Текущее место: ' + f"{pos}/{total}")
-    else:
-        lines.append('📊 Текущее место: —')
-    if streak is not None:
-        lines.append('🔥 Текущий стрик: ' + f"{streak} {plural_day(streak)}")
-    lines.append('\n\n🏆 Топ-5 игроков:')
 
-    for idx, e in enumerate(entries[:5], start=1):
-        uname = e.get('username') or 'Без ника'
-        xp = e.get('total_xp', 0)
-        if idx == 1:
-            prefix = '🥇'
-        elif idx == 2:
-            prefix = '🥈'
-        elif idx == 3:
-            prefix = '🥉'
-        else:
-            prefix = '🔹'
-        lines.append(f"{prefix} {idx}. @{uname}: {xp} баллов")
+    if pos and total:
+        lines.append(f'\n📊 Ваше место: {pos}/{total}')
+    else:
+        lines.append('\n📊 Ваше место: не найдено')
+
+    if streak is not None:
+        lines.append(f'🔥 Ваш стрик: {streak} {plural_day(streak)}')
+
+    if entries:
+        lines.append(f'\n\n🏆 Топ-5 участников чата ({len(entries)} чел.):')
+
+        for idx, e in enumerate(entries, start=1):
+            uname = e.get('username') or 'Без ника'
+            xp = e.get('total_xp', 0)
+            if idx == 1:
+                prefix = '🥇'
+            elif idx == 2:
+                prefix = '🥈'
+            elif idx == 3:
+                prefix = '🥉'
+            else:
+                prefix = '🔹'
+            lines.append(f"{prefix} {idx}. @{uname}: {xp} баллов")
+    else:
+        lines.append('\n\n❌ Среди участников чата нет зарегистрированных игроков.')
 
     lines.append('\n\n💡 Как повысить свое место:')
     lines.append('- Участвуйте в викторинах')
     lines.append('- Правильно отвечайте на вопросы')
     lines.append('- Играйте каждый день для поддержания стрика')
-    lines.append('- Выполняйте ежедневные задания')
 
     text = '\n'.join(lines)
-
-    if message.chat.type != 'private':
-        await message.answer('📊 Отправляю информацию о вашем месте в рейтинге в личные сообщения...')
-        try:
-            await message.bot.send_message(message.from_user.id, text)
-        except Exception:
-            await message.answer('Не могу написать вам в личные сообщения. Начните чат с ботом и повторите команду.')
-    else:
-        await message.answer(text)
+    await message.answer(text)
 
 
 @router.message(Command('menu'))
