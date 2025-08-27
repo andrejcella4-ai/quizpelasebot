@@ -38,6 +38,5 @@ CMD gunicorn botapi.asgi:application \
     --preload \
     --access-logfile - \
     --error-logfile - \
-    --log-level $LOG_LEVEL \
     --timeout 60 \
     --keep-alive 5
