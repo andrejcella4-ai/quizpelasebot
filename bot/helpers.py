@@ -112,6 +112,10 @@ async def send_next_question(bot, chat_id: int, game_state: GameState):
     game_state.answers_right.clear()
     game_state.answers_wrong.clear()
     
+    # Очищаем лайки/дизлайки для нового вопроса
+    game_state.question_likes.clear()
+    game_state.question_dislikes.clear()
+    
     # Формируем текст вопроса. Для командных открытых вопросов добавляем подсказку про команды и 2 попытки
     if game_state.mode == "team" and question["question_type"] == QuestionTypeChoices.TEXT:
         # Берем капитана (одного, исходя из текущей модели одной команды на чат)
@@ -153,6 +157,9 @@ async def send_next_question(bot, chat_id: int, game_state: GameState):
         game_state.current_correct_answer = question.get("correct_answers", [question["correct_answer"]])[0]
     except Exception:
         game_state.current_correct_answer = None
+    
+    # Сохраняем ID текущего вопроса для лайков/дизлайков
+    game_state.current_question_id = question.get("id")
 
     # Удаляем предыдущее сообщение с вопросом и гасим предыдущий таймер
     if game_state.current_question_msg_id:

@@ -214,3 +214,21 @@ async def get_configs(system_token: str) -> list[dict]:
         async with session.get(f'{BASE_URL}/configs/') as resp:
             resp.raise_for_status()
             return await resp.json()
+
+
+async def question_like(question_id: int, token: str) -> dict:
+    """Поставить лайк вопросу"""
+    headers = {'Authorization': f'Token {token}'}
+    async with aiohttp.ClientSession(headers=headers) as session:
+        async with session.post(f'{BASE_URL}/question/{question_id}/like/') as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+
+async def question_dislike(question_id: int, token: str) -> dict:
+    """Поставить дизлайк вопросу"""
+    headers = {'Authorization': f'Token {token}'}
+    async with aiohttp.ClientSession(headers=headers) as session:
+        async with session.post(f'{BASE_URL}/question/{question_id}/dislike/') as resp:
+            resp.raise_for_status()
+            return await resp.json()

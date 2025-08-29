@@ -24,6 +24,9 @@ from main.views import (
     BotTextsBulkUpsertView,
     RotatedQuestionListView,
     ConfigViewSet,
+    BulkQuestionImportView,
+    QuestionLikeView,
+    QuestionDislikeView,
 )
 
 
@@ -51,6 +54,9 @@ urlpatterns = [
     path('player/notify-list/', PlayerNotifyListView.as_view(), name='player-notify-list'),
     path('bot-texts/', BotTextsDictView.as_view(), name='bot-texts-dict'),
     path('bot-texts/bulk-upsert/', BotTextsBulkUpsertView.as_view(), name='bot-texts-bulk-upsert'),
+    path('bulk-import-questions/', BulkQuestionImportView.as_view(), name='bulk-import-questions'),
+    path('question/<int:question_id>/like/', QuestionLikeView.as_view(), name='question-like'),
+    path('question/<int:question_id>/dislike/', QuestionDislikeView.as_view(), name='question-dislike'),
 
     path('', include(router.urls)),
 ]

@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Массовая загрузка вопросов</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .info-block {
+            background: #e7f3ff;
+            border: 1px solid #b3d9ff;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        
+        .info-block h3 {
+            margin-top: 0;
+            color: #0056b3;
+        }
+        
+        .info-block ul {
+            margin: 10px 0;
+            padding-left: 20px;
+        }
+        
+        .upload-form {
+            margin: 30px 0;
+        }
+        
+        .file-input-wrapper {
+            margin: 20px 0;
+        }
+        
+        .file-input {
+            padding: 20px;
+            border: 2px dashed #ddd;
+            border-radius: 10px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            background: #fafafa;
+        }
+        
+        .file-input:hover {
+            border-color: #007cba;
+            background: #f0f8ff;
+        }
+        
+        .file-input input[type="file"] {
+            display: none;
+        }
+        
+        .file-input p {
+            margin: 10px 0;
+            color: #666;
+        }
+        
+        #fileName {
+            color: #007cba;
+            font-weight: bold;
+            font-size: 16px;
+        }
+        
+        .upload-btn {
+            background: #007cba;
+            color: white;
+            padding: 12px 30px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            width: 100%;
+            margin-top: 20px;
+        }
+        
+        .upload-btn:hover {
+            background: #005a87;
+        }
+        
+        .upload-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background: #f0f0f0;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 20px 0;
+            display: none;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: #007cba;
+            width: 0%;
+            transition: width 0.3s;
+        }
+        
+        .results {
+            margin-top: 30px;
+            display: none;
+        }
+        
+        .results-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        
+        .results-table th,
+        .results-table td {
+            padding: 12px;
+            border: 1px solid #ddd;
+            text-align: left;
+        }
+        
+        .results-table th {
+            background: #f5f5f5;
+            font-weight: bold;
+        }
+        
+        .success {
+            color: #28a745;
+            font-weight: bold;
+        }
+        
+        .error {
+            color: #dc3545;
+            font-weight: bold;
+        }
+        
+        .error-list {
+            max-height: 200px;
+            overflow-y: auto;
+            background: #fff;
+            border: 1px solid #ddd;
+            padding: 15px;
+            margin-top: 10px;
+            border-radius: 5px;
+        }
+        
+        .error-item {
+            color: #dc3545;
+            margin: 5px 0;
+            padding: 5px 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        
+        .back-link {
+            display: inline-block;
+            margin-bottom: 20px;
+            color: #007cba;
+            text-decoration: none;
+        }
+        
+        .back-link:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="/admin/" class="back-link">← Вернуться в админку</a>
+        
+        <h1>Массовая загрузка вопросов из XLSX</h1>
+        
+        <div class="info-block">
+            <h3>Формат файла:</h3>
+            <ul>
+                <li><strong>Колонка A:</strong> Текст вопроса</li>
+                <li><strong>Колонки B-E:</strong> Варианты ответов (от 1 до 4)</li>
+                <li><strong>Колонка F:</strong> Правильный ответ (текст)</li>
+                <li><strong>Колонка G:</strong> Комментарий к вопросу</li>
+                <li><strong>Колонка H:</strong> Тема вопроса</li>
+                <li><strong>Колонка I:</strong> Сложность (легко/средне/сложно)</li>
+                <li><strong>Колонка J:</strong> Индекс правильного ответа (0-3)</li>
+                <li><strong>Колонка K:</strong> Хеш вопроса (необязательно)</li>
+            </ul>
+            <p><strong>Примечание:</strong> Если в колонках B-E только один ответ, создается текстовый вопрос. Если несколько - вопрос с вариантами.</p>
+        </div>
+
+        <form id="uploadForm" class="upload-form" enctype="multipart/form-data">
+            {% csrf_token %}
+            <div class="file-input-wrapper">
+                <div class="file-input" onclick="document.getElementById('fileInput').click()">
+                    <input type="file" id="fileInput" accept=".xlsx,.xls" required>
+                    <p>📁 Нажмите для выбора XLSX файла</p>
+                    <p id="fileName"></p>
+                </div>
+            </div>
+            
+            <div class="progress-bar" id="progressBar">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
+            
+            <button type="submit" class="upload-btn" id="uploadBtn">
+                Загрузить и обработать файл
+            </button>
+        </form>
+
+        <div id="results" class="results">
+            <h2>Результаты загрузки:</h2>
+            <table class="results-table" id="resultsTable">
+                <thead>
+                    <tr>
+                        <th>Параметр</th>
+                        <th>Количество</th>
+                    </tr>
+                </thead>
+                <tbody id="resultsBody">
+                </tbody>
+            </table>
+            
+            <div id="errorSection" style="display: none;">
+                <h3 class="error">Ошибки при обработке:</h3>
+                <div class="error-list" id="errorList"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('fileInput').addEventListener('change', function(e) {
+            const fileName = e.target.files[0]?.name;
+            document.getElementById('fileName').textContent = fileName || '';
+        });
+
+        document.getElementById('uploadForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const fileInput = document.getElementById('fileInput');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                alert('Пожалуйста, выберите файл');
+                return;
+            }
+            
+            const uploadBtn = document.getElementById('uploadBtn');
+            const progressBar = document.getElementById('progressBar');
+            const progressFill = document.getElementById('progressFill');
+            const results = document.getElementById('results');
+            
+            // Показываем прогресс
+            uploadBtn.disabled = true;
+            uploadBtn.textContent = 'Обработка...';
+            progressBar.style.display = 'block';
+            progressFill.style.width = '0%';
+            results.style.display = 'none';
+            
+            // Анимация прогресса
+            let progress = 0;
+            const progressInterval = setInterval(() => {
+                progress += 10;
+                progressFill.style.width = progress + '%';
+                if (progress >= 90) {
+                    clearInterval(progressInterval);
+                }
+            }, 100);
+            
+            try {
+                const formData = new FormData();
+                formData.append('file', file);
+                formData.append('csrfmiddlewaretoken', document.querySelector('[name=csrfmiddlewaretoken]').value);
+                
+                const response = await fetch(window.location.href, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                // Завершаем прогресс
+                clearInterval(progressInterval);
+                progressFill.style.width = '100%';
+                
+                setTimeout(() => {
+                    progressBar.style.display = 'none';
+                    displayResults(data);
+                }, 500);
+                
+            } catch (error) {
+                clearInterval(progressInterval);
+                progressBar.style.display = 'none';
+                alert('Ошибка при загрузке файла: ' + error.message);
+            } finally {
+                uploadBtn.disabled = false;
+                uploadBtn.textContent = 'Загрузить и обработать файл';
+            }
+        });
+        
+        function displayResults(data) {
+            const results = document.getElementById('results');
+            const resultsBody = document.getElementById('resultsBody');
+            const errorSection = document.getElementById('errorSection');
+            const errorList = document.getElementById('errorList');
+            
+            results.style.display = 'block';
+            
+            if (data.error) {
+                resultsBody.innerHTML = `
+                    <tr>
+                        <td class="error">Ошибка</td>
+                        <td class="error">${data.error}</td>
+                    </tr>
+                `;
+                errorSection.style.display = 'none';
+                return;
+            }
+            
+            // Показываем статистику
+            resultsBody.innerHTML = `
+                <tr>
+                    <td>Обработано строк</td>
+                    <td class="success">${data.total_processed || 0}</td>
+                </tr>
+                <tr>
+                    <td>Создано вопросов</td>
+                    <td class="success">${data.created_questions || 0}</td>
+                </tr>
+                <tr>
+                    <td>Создано тем</td>
+                    <td class="success">${data.created_topics || 0}</td>
+                </tr>
+                <tr>
+                    <td>Создано ответов</td>
+                    <td class="success">${data.created_answers || 0}</td>
+                </tr>
+            `;
+            
+            // Показываем ошибки, если есть
+            if (data.errors && data.errors.length > 0) {
+                errorSection.style.display = 'block';
+                errorList.innerHTML = data.errors.map(error => 
+                    `<div class="error-item">${error}</div>`
+                ).join('');
+            } else {
+                errorSection.style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html>

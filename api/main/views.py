@@ -4,14 +4,21 @@ from rest_framework.response import Response
 from rest_framework import status, permissions, serializers
 from django.utils import timezone
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Q, F
 from django.db.models import Exists, OuterRef
+from django.shortcuts import render
+from django.contrib.admin.views.decorators import staff_member_required
+from django.utils.decorators import method_decorator
+from django.views import View
+from django.http import JsonResponse
 
 from datetime import datetime
 import random
+import pandas as pd
+import hashlib
 
 import pytz
-from .models import TelegramPlayer, Quiz, PlayerToken, Team, PlanTeamQuiz, BotText, City, Question, QuestionUsage, Config
+from .models import TelegramPlayer, Quiz, PlayerToken, Team, PlanTeamQuiz, BotText, City, Question, QuestionUsage, Config, Topic, QuestionAnswer
 from .serializers import (
     AuthPlayerSerializer, QuizInfoSerializer, QuestionListSerializer, TeamSerializer,
     PlanTeamQuizSerializer, TelegramPlayerUpdateSerializer, LeaderboardEntrySerializer,
@@ -527,3 +534,226 @@ class BotTextsBulkUpsertView(APIView):
             'updated': updated_count,
             'total': created_count + updated_count
         })
+
+
+@method_decorator(staff_member_required, name='dispatch')
+class BulkQuestionImportView(View):
+    """
+    View для массовой загрузки вопросов из XLSX файла.
+    Доступен только администраторам.
+    """
+    
+    def get(self, request):
+        """Отображение формы загрузки"""
+        return render(request, 'main/bulk_question_import.html')
+    
+    def post(self, request):
+        """Обработка загруженного файла"""
+        if 'file' not in request.FILES:
+            return JsonResponse({'error': 'Файл не загружен'}, status=400)
+        
+        file = request.FILES['file']
+        if not file.name.endswith(('.xlsx', '.xls')):
+            return JsonResponse({'error': 'Поддерживаются только XLSX/XLS файлы'}, status=400)
+        
+        try:
+            # Читаем Excel файл
+            df = pd.read_excel(file, engine='openpyxl')
+            
+            results = self._process_excel_data(df)
+            return JsonResponse(results)
+            
+        except Exception as e:
+            return JsonResponse({'error': f'Ошибка обработки файла: {str(e)}'}, status=500)
+    
+    def _process_excel_data(self, df):
+        """Обработка данных из Excel"""
+        created_questions = 0
+        created_topics = 0
+        created_answers = 0
+        errors = []
+        
+        with transaction.atomic():
+            for index, row in df.iterrows():
+                try:
+                    # Пропускаем пустые строки
+                    if pd.isna(row['text']) or not str(row['text']).strip():
+                        continue
+                    
+                    # Обрабатываем сложность
+                    difficulty = self._parse_difficulty(row['difficulty'])
+                    
+                    # Создаем или получаем тему
+                    topic = None
+                    if not pd.isna(row['theme']) and str(row['theme']).strip():
+                        topic_name = str(row['theme']).strip()
+                        topic, topic_created = Topic.objects.get_or_create(
+                            name=topic_name,
+                            defaults={'description': f'Тема: {topic_name}'}
+                        )
+                        if topic_created:
+                            created_topics += 1
+                    
+                    # Собираем ответы
+                    answers = []
+                    for i in range(1, 5):  # answer_1, answer_2, answer_3, answer_4
+                        answer_text = row[f'answer{i}']
+                        if not pd.isna(answer_text) and str(answer_text).strip():
+                            answers.append(str(answer_text).strip())
+                    
+                    # Определяем тип вопроса
+                    question_type = Question.QuestionTypeChoices.VARIANT if len(answers) > 1 else Question.QuestionTypeChoices.TEXT
+                    
+                    # Создаем вопрос
+                    question_data = {
+                        'text': str(row['text']).strip(),
+                        'difficulty': difficulty,
+                        'game_use_type': Question.QuestionUseTypeChoices.DM,
+                        'comment': str(row['comment']).strip() if not pd.isna(row['comment']) else None,
+                        'question_type': question_type,
+                    }
+                    
+                    # Проверяем на дублирование по хешу (если есть)
+                    if not pd.isna(row['hash']):
+                        question_hash = str(row['hash']).strip()
+                        # Можно добавить логику проверки дублирования
+                    
+                    question = Question.objects.create(**question_data)
+                    created_questions += 1
+                    
+                    # Связываем с темой
+                    if topic:
+                        question.topics.add(topic)
+                    
+                    # Создаем ответы
+                    if question_type == Question.QuestionTypeChoices.TEXT:
+                        # Для текстовых вопросов создаем один правильный ответ
+                        correct_answer_text = str(row['right_answer']).strip() if not pd.isna(row['right_answer']) else answers[0] if answers else ""
+                        if correct_answer_text:
+                            QuestionAnswer.objects.create(
+                                question=question,
+                                text=correct_answer_text,
+                                is_right=True
+                            )
+                            created_answers += 1
+                    else:
+                        # Для вопросов с вариантами создаем все ответы
+                        correct_index = None
+                        if not pd.isna(row['q_index']):
+                            try:
+                                correct_index = int(row['q_index'])
+                            except (ValueError, TypeError):
+                                pass
+                        
+                        # Если индекс не указан, пытаемся найти правильный ответ по тексту
+                        if correct_index is None and not pd.isna(row['right_answer']):
+                            correct_answer_text = str(row['right_answer']).strip()
+                            for i, answer in enumerate(answers):
+                                if answer == correct_answer_text:
+                                    correct_index = i
+                                    break
+                        
+                        # Создаем все ответы
+                        for i, answer_text in enumerate(answers):
+                            is_correct = (correct_index is not None and i == correct_index)
+                            QuestionAnswer.objects.create(
+                                question=question,
+                                text=answer_text,
+                                is_right=is_correct
+                            )
+                            created_answers += 1
+                    
+                except Exception as e:
+                    errors.append(f'Строка {index + 2}: {str(e)}')
+                    continue
+        
+        return {
+            'success': True,
+            'created_questions': created_questions,
+            'created_topics': created_topics, 
+            'created_answers': created_answers,
+            'errors': errors,
+            'total_processed': len(df)
+        }
+    
+    def _parse_difficulty(self, difficulty_text):
+        """Преобразование текста сложности в число"""
+        if pd.isna(difficulty_text):
+            return 1
+        
+        difficulty_str = str(difficulty_text).lower().strip()
+        difficulty_map = {
+            'легко': 1,
+            'легкий': 1,
+            'легкая': 1,
+            'easy': 1,
+            'средне': 2,
+            'средний': 2,
+            'средняя': 2,
+            'medium': 2,
+            'сложно': 3,
+            'сложный': 3,
+            'сложная': 3,
+            'hard': 3,
+            'сложнее': 4,
+            'очень сложно': 5,
+            'очень сложный': 5,
+        }
+        
+        return difficulty_map.get(difficulty_str, 1)
+
+
+class QuestionLikeView(APIView):
+    """
+    API для добавления лайка к вопросу
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    authentication_classes = [PlayerTokenAuthentication]
+    
+    def post(self, request, question_id):
+        try:
+            # Атомарное увеличение лайков на уровне БД
+            updated_count = Question.objects.filter(id=question_id).update(likes=F('likes') + 1)
+            
+            if updated_count == 0:
+                return Response({'error': 'Вопрос не найден'}, status=status.HTTP_404_NOT_FOUND)
+            
+            # Получаем обновленные значения
+            question = Question.objects.get(id=question_id)
+            return Response({
+                'success': True,
+                'likes': question.likes,
+                'dislikes': question.dislikes
+            })
+        except Question.DoesNotExist:
+            return Response({'error': 'Вопрос не найден'}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class QuestionDislikeView(APIView):
+    """
+    API для добавления дизлайка к вопросу
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    authentication_classes = [PlayerTokenAuthentication]
+    
+    def post(self, request, question_id):
+        try:
+            # Атомарное увеличение дизлайков на уровне БД
+            updated_count = Question.objects.filter(id=question_id).update(dislikes=F('dislikes') + 1)
+            
+            if updated_count == 0:
+                return Response({'error': 'Вопрос не найден'}, status=status.HTTP_404_NOT_FOUND)
+            
+            # Получаем обновленные значения
+            question = Question.objects.get(id=question_id)
+            return Response({
+                'success': True,
+                'likes': question.likes,
+                'dislikes': question.dislikes
+            })
+        except Question.DoesNotExist:
+            return Response({'error': 'Вопрос не найден'}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

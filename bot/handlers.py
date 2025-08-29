@@ -15,6 +15,8 @@ from api_client import (
     get_rotated_questions_solo,
     get_bot_texts,
     get_configs,
+    question_like,
+    question_dislike,
 )
 from keyboards import main_menu_keyboard, confirm_start_keyboard, create_variant_keyboard, private_menu_keyboard, question_result_keyboard, quiz_theme_keyboard, finish_quiz_keyboard
 from static.answer_texts import TextStatics
@@ -132,6 +134,9 @@ async def send_question(message: types.Message, state: FSMContext):
     text = q['text']
     q_type = q['question_type']
     time_limit = quiz_info.get('time_to_answer', 10)
+    
+    # Сохраняем ID текущего вопроса для лайков/дизлайков
+    await state.update_data(current_question_id=q.get('id'))
 
     question_text = TextStatics.format_question_text(index, text, time_limit)
     if q_type == QuestionTypeChoices.VARIANT:
@@ -525,9 +530,64 @@ async def go_back(callback: types.CallbackQuery, state: FSMContext):
 
 
 @router.callback_query(lambda c: c.data in ('like', 'dislike'))
-async def rate_question(callback: types.CallbackQuery):
-    # Без лишних сообщений, как у оригинала — просто ответим на клик
-    await callback.answer()
+async def rate_question(callback: types.CallbackQuery, state: FSMContext):
+    user_id = str(callback.from_user.id)
+    
+    # Получаем ID текущего вопроса
+    current_question_id = None
+    
+    if callback.message.chat.type == 'private':
+        # Личный чат - берем из состояния FSM
+        data = await state.get_data()
+        current_question_id = data.get('current_question_id')
+    else:
+        # Групповой чат - ищем активную игру
+        from states.local_state import _get_game_key_for_chat, _games_state
+        game_key = _get_game_key_for_chat(callback.message.chat.id)
+        
+        if game_key and game_key in _games_state:
+            game_state = _games_state[game_key]
+            current_question_id = game_state.current_question_id
+            
+            # Проверяем, не голосовал ли уже пользователь за этот вопрос
+            if (callback.data == 'like' and user_id in game_state.question_likes) or \
+               (callback.data == 'dislike' and user_id in game_state.question_dislikes):
+                await callback.answer("Вы уже оценили этот вопрос", show_alert=True)
+                return
+            
+            # Добавляем пользователя в соответствующий набор
+            if callback.data == 'like':
+                game_state.question_likes.add(user_id)
+                # Убираем из дизлайков, если был там
+                game_state.question_dislikes.discard(user_id)
+            else:
+                game_state.question_dislikes.add(user_id)
+                # Убираем из лайков, если был там
+                game_state.question_likes.discard(user_id)
+    
+    if not current_question_id:
+        await callback.answer("Вопрос не найден")
+        return
+    
+    # Отправляем запрос к API
+    try:
+        token = await auth_player(
+            callback.from_user.id,
+            callback.from_user.first_name,
+            callback.from_user.last_name or '',
+            callback.from_user.username
+        )
+        
+        if callback.data == 'like':
+            result = await question_like(current_question_id, token)
+            await callback.answer("👍 Лайк поставлен!")
+        else:
+            result = await question_dislike(current_question_id, token)
+            await callback.answer("👎 Дизлайк поставлен!")
+            
+    except Exception as e:
+        print(f"Ошибка при оценке вопроса: {e}")
+        await callback.answer("Ошибка при оценке вопроса")
 
 
 @router.callback_query(lambda c: c.data == 'notify:mute')

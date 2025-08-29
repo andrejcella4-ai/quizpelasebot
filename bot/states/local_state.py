@@ -51,6 +51,9 @@ class GameState:
     # prevent duplicate Next transitions
     next_in_progress: bool = False
     plan_team_quiz_id: int | None = None
+    # защита от повторных лайков/дизлайков на текущий вопрос
+    question_likes: set[str] = field(default_factory=set)  # telegram_id пользователей, поставивших лайк
+    question_dislikes: set[str] = field(default_factory=set)  # telegram_id пользователей, поставивших дизлайк
 
 
 def get_game_state(game_key: str) -> GameState:
