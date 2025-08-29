@@ -187,21 +187,6 @@
         <a href="/admin/" class="back-link">← Вернуться в админку</a>
         
         <h1>Массовая загрузка вопросов из XLSX</h1>
-        
-        <div class="info-block">
-            <h3>Формат файла:</h3>
-            <ul>
-                <li><strong>Колонка A:</strong> Текст вопроса</li>
-                <li><strong>Колонки B-E:</strong> Варианты ответов (от 1 до 4)</li>
-                <li><strong>Колонка F:</strong> Правильный ответ (текст)</li>
-                <li><strong>Колонка G:</strong> Комментарий к вопросу</li>
-                <li><strong>Колонка H:</strong> Тема вопроса</li>
-                <li><strong>Колонка I:</strong> Сложность (легко/средне/сложно)</li>
-                <li><strong>Колонка J:</strong> Индекс правильного ответа (0-3)</li>
-                <li><strong>Колонка K:</strong> Хеш вопроса (необязательно)</li>
-            </ul>
-            <p><strong>Примечание:</strong> Если в колонках B-E только один ответ, создается текстовый вопрос. Если несколько - вопрос с вариантами.</p>
-        </div>
 
         <form id="uploadForm" class="upload-form" enctype="multipart/form-data">
             {% csrf_token %}

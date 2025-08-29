@@ -725,8 +725,6 @@ class QuestionLikeView(APIView):
                 'likes': question.likes,
                 'dislikes': question.dislikes
             })
-        except Question.DoesNotExist:
-            return Response({'error': 'Вопрос не найден'}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
@@ -753,7 +751,5 @@ class QuestionDislikeView(APIView):
                 'likes': question.likes,
                 'dislikes': question.dislikes
             })
-        except Question.DoesNotExist:
-            return Response({'error': 'Вопрос не найден'}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
