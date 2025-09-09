@@ -458,13 +458,17 @@ async def finalize_game(bot, chat_id: int, game_state: GameState):
             pass
     finally:
         # Очистить состояние
-        game_key = _get_game_key_for_chat(chat_id)
-        if game_key and game_key in _games_state:
-            try:
+            game_key = _get_game_key_for_chat(chat_id)
+            if not game_key:
+                return
+            game_state = get_game_state(game_key)
+            if game_state and game_state.timer_task:
+                try:
+                    game_state.timer_task.cancel()
+                except Exception:
+                    pass
+            if game_key in _games_state:
                 del _games_state[game_key]
-            except Exception:
-                pass
-        game_state.status = 'finished'
 
 
 async def process_answer(bot, chat_id: int, game_state: GameState, username: str, answer: str, callback: types.CallbackQuery | None = None):
@@ -911,4 +915,31 @@ def get_nearest_game_avaliable(plans: list[dict]) -> dict | None:
     return nearest[0] if nearest else None
 
 
+async def stop_quiz(message: types.Message, state: FSMContext):
 
+    if message.chat.type == 'private':
+        data = await state.get_data()
+        task = data.get('timer_task')
+        if task:
+            try:
+                task.cancel()
+            except Exception:
+                pass
+        await state.clear()
+        await message.answer(TextStatics.stopped_quiz())
+        return
+
+    # GROUP (dm/team): удаляем игру из _games_state
+    game_key = _get_game_key_for_chat(message.chat.id)
+    if not game_key:
+        await message.answer(TextStatics.no_active_game())
+        return
+    game_state = get_game_state(game_key)
+    if game_state and game_state.timer_task:
+        try:
+            game_state.timer_task.cancel()
+        except Exception:
+            pass
+    if game_key in _games_state:
+        del _games_state[game_key]
+    await message.answer(TextStatics.stopped_quiz())

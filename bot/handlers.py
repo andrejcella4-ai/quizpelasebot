@@ -25,7 +25,7 @@ from api_client import (
 from keyboards import main_menu_keyboard, confirm_start_keyboard, create_variant_keyboard, private_menu_keyboard, question_result_keyboard, new_chat_welcome_keyboard, existing_chat_welcome_keyboard
 from static.answer_texts import TextStatics
 from static import answer_texts
-from helpers import fetch_question_and_cancel, load_and_send_image
+from helpers import fetch_question_and_cancel, load_and_send_image, stop_quiz
 from static.choices import QuestionTypeChoices
 
 
@@ -555,7 +555,7 @@ async def next_question(callback: types.CallbackQuery, state: FSMContext):
 @router.callback_query(lambda c: c.data == 'back')
 async def go_back(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
-    await callback.message.answer(TextStatics.canceled())
+    await stop_quiz(callback.message, state)
 
 
 @router.callback_query(lambda c: c.data in ('like', 'dislike'))

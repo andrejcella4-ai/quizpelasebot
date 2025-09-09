@@ -29,6 +29,7 @@ from helpers import (
     question_transition_delay,
     finalize_game,
     move_to_next_question,
+    stop_quiz,
 )
 from states.local_state import (
     get_game_state,
@@ -47,33 +48,7 @@ router = Router(name="team_handlers")
 @router.message(Command("stop"))
 async def stop_game_team(message: types.Message, state: FSMContext):
     """Остановить текущую викторину: SOLO (private) очищаем FSM, GROUP (dm/team) удаляем из _games_state."""
-    if message.chat.type == 'private':
-        data = await state.get_data()
-        task = data.get('timer_task')
-        if task:
-            try:
-                task.cancel()
-            except Exception:
-                pass
-        await state.clear()
-        await message.answer(TextStatics.stopped_quiz())
-        return
-
-    # GROUP (dm/team): удаляем игру из _games_state
-    game_key = _get_game_key_for_chat(message.chat.id)
-    if not game_key:
-        await message.answer(TextStatics.no_active_game())
-        return
-    game_state = get_game_state(game_key)
-    if game_state and game_state.timer_task:
-        try:
-            game_state.timer_task.cancel()
-        except Exception:
-            pass
-    if game_key in _games_state:
-        del _games_state[game_key]
-    await message.answer(TextStatics.stopped_quiz())
-
+    await stop_quiz(message, state)
 
 # --------------------------------------------------------
 # /game command – show current status or registration
