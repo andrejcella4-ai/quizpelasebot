@@ -17,15 +17,40 @@ from api_client import (
     get_configs,
     question_like,
     question_dislike,
+    chat_leaderboard,
+    team_leaderboard,
+    get_team,
 )
-from keyboards import main_menu_keyboard, confirm_start_keyboard, create_variant_keyboard, private_menu_keyboard, question_result_keyboard, quiz_theme_keyboard, finish_quiz_keyboard
+from keyboards import main_menu_keyboard, confirm_start_keyboard, create_variant_keyboard, private_menu_keyboard, question_result_keyboard, new_chat_welcome_keyboard, existing_chat_welcome_keyboard
 from static.answer_texts import TextStatics
 from static import answer_texts
-from helpers import fetch_question_and_cancel, load_and_send_image, get_telethon_client
+from helpers import fetch_question_and_cancel, load_and_send_image
 from static.choices import QuestionTypeChoices
 
 
 router = Router()
+
+# --- Обработка добавления бота в чат ---
+@router.my_chat_member()
+async def on_my_chat_member(update: types.ChatMemberUpdated):
+    try:
+        if update.new_chat_member and update.new_chat_member.status in {"administrator", "member"}:
+            system_token = os.getenv('BOT_SYSTEM_TOKEN') or os.getenv('BOT_TOKEN', '')
+            chat_id = update.chat.id
+            chat_username = update.chat.username
+            try:
+                from api_client import chat_register
+                res = await chat_register(system_token, chat_id, chat_username)
+                is_created = bool(res.get('created')) if isinstance(res, dict) else False
+            except Exception:
+                is_created = False
+            # Разные тексты: новый чат vs существующий
+            if is_created:
+                await update.bot.send_message(chat_id, TextStatics.get_start_message_group_new(), reply_markup=new_chat_welcome_keyboard())
+            else:
+                await update.bot.send_message(chat_id, TextStatics.get_start_message_group(), reply_markup=existing_chat_welcome_keyboard())
+    except Exception:
+        pass
 
 
 def schedule_question_timeout_solo(delay: int, state: FSMContext, index: int, q: dict, message: types.Message, send_question_fn) -> asyncio.Task:
@@ -111,7 +136,7 @@ async def send_question(message: types.Message, state: FSMContext):
             system_token = os.getenv('BOT_SYSTEM_TOKEN') or os.getenv('BOT_TOKEN', '')
             points = correct
             username = message.from_user.username or str(message.from_user.id)
-            res = await player_game_end(username, points, system_token)
+            res = await player_game_end(username, points, system_token, chat_id=message.chat.id)
             streak = None
             if isinstance(res, dict):
                 # Новый формат: {'updated': [{'username':..., 'streak':...}]}
@@ -135,10 +160,19 @@ async def send_question(message: types.Message, state: FSMContext):
     q_type = q['question_type']
     time_limit = quiz_info.get('time_to_answer', 10)
     
-    # Сохраняем ID текущего вопроса для лайков/дизлайков
+    # Сохраняем ID текущего вопроса для лайков/дизлайков и массив сообщений к удалению
     await state.update_data(current_question_id=q.get('id'))
+    cleanup_ids = (data.get('cleanup_message_ids') or [])
+    # Перед отправкой нового вопроса — удалим старые вспомогательные, ответы пользователей и вопрос
+    for mid in cleanup_ids + [data.get('last_question_msg_id')]:
+        if mid:
+            try:
+                await message.bot.delete_message(message.chat.id, mid)
+            except Exception:
+                pass  # Нет прав или сообщение уже удалено
+    await state.update_data(cleanup_message_ids=[])
 
-    question_text = TextStatics.format_question_text(index, text, time_limit)
+    question_text = TextStatics.format_question_text(index + 1, text, time_limit, len(questions))
     if q_type == QuestionTypeChoices.VARIANT:
         options = q['wrong_answers'] + [q['correct_answer']]
         random.shuffle(options)
@@ -174,27 +208,14 @@ async def send_question(message: types.Message, state: FSMContext):
 
 @router.message(Command('start'))
 async def start_command(message: types.Message, state: FSMContext):
-    # Всегда показываем только приветствие
     username = message.from_user.username or str(message.from_user.id)
-    await message.answer(TextStatics.get_start_message(username))
-
-
-async def get_chat_member_usernames(bot, chat_id: int) -> list[str]:
-    try:
-        usernames = []
-
-        async with get_telethon_client() as client:
-            async for participant in client.iter_participants(chat_id):
-                if participant.username and not participant.bot:
-                    usernames.append(participant.username.lower())
-
-        return usernames
-
-    except Exception as e:
-        for admin_user in os.getenv('ADMIN_USERS', '').split(' '):
-            await bot.send_message(admin_user, f"Ошибка при получении списка участников чата с помощью Telethon: {e}")
-
-        return []
+    
+    if message.chat.type == 'private':
+        # В личном чате показываем приветствие для личных сообщений
+        await message.answer(TextStatics.get_start_message_private(username))
+    else:
+        # В групповом чате показываем приветствие для группы
+        await message.answer(TextStatics.get_start_message_group())
 
 
 @router.message(Command('stats'))
@@ -204,55 +225,53 @@ async def stats_command(message: types.Message):
         await message.answer(TextStatics.use_stats_in_group_chats())
         return
 
-    token = await auth_player(
-        telegram_id=message.from_user.id,
-        first_name=message.from_user.first_name,
-        last_name=message.from_user.last_name,
-        username=message.from_user.username,
-        lang_code=message.from_user.language_code,
-    )
+    # Получаем лидерборд игроков в этом чате
+    system_token = os.getenv('BOT_SYSTEM_TOKEN') or os.getenv('BOT_TOKEN', '')
+    chat_data = await chat_leaderboard(message.chat.id, system_token)
+    entries = chat_data.get('entries', [])
 
-    # Получаем список username участников чата
-    chat_usernames = await get_chat_member_usernames(message.bot, message.chat.id)
+    # Формируем список игроков для показа
+    players_list = []
+    for idx, e in enumerate(entries[:5], start=1):  # Топ-5
+        uname = e.get('username') or 'Без ника'
+        points = e.get('points', 0)
+        if idx == 1:
+            prefix = '🥇'
+        elif idx == 2:
+            prefix = '🥈'
+        elif idx == 3:
+            prefix = '🥉'
+        else:
+            prefix = '🔹'
+        players_list.append(f"{prefix} {idx}. @{uname}: {points} баллов")
+    
+    players_text = '\n'.join(players_list) if players_list else 'Пока нет игроков с очками'
 
-    # Получаем лидерборд среди участников этого чата
-    data = await player_leaderboard(
-        token,
-        usernames=chat_usernames,
-        current_user_username=str(message.from_user.username) or str(message.from_user.id)
-    )
-    entries = data.get('entries', [])
-    current = data.get('current') or {}
-
-    def plural_day(n: int) -> str:
-        n = abs(int(n))
-        if n % 10 == 1 and n % 100 != 11:
-            return 'день'
-        if 2 <= n % 10 <= 4 and not (12 <= n % 100 <= 14):
-            return 'дня'
-        return 'дней'
-
-    pos = current.get('position') if isinstance(current, dict) else None
-    total = current.get('total') if isinstance(current, dict) else None
-    streak = current.get('streak') if isinstance(current, dict) else None
-
-    lines: list[str] = []
-    lines.append('🏆 Ваша статистика в общем рейтинге')
-
-    if pos and total:
-        lines.append(f'\n📊 Ваше место: {pos}/{total}')
-    else:
-        lines.append('\n📊 Ваше место: не найдено')
-
-    if streak is not None:
-        lines.append(f'🔥 Ваш стрик: {streak} {plural_day(streak)}')
-
-    if entries:
-        lines.append(f'\n\n🏆 Топ-5 участников чата ({len(entries)} чел.):')
-
-        for idx, e in enumerate(entries, start=1):
-            uname = e.get('username') or 'Без ника'
-            xp = e.get('total_xp', 0)
+    # Получаем информацию о командах
+    teams_text = ''
+    team_position_text = ''
+    
+    # Проверяем, есть ли у чата username для команд
+    if message.chat.username:
+        # Авторизуемся
+        token = await auth_player(
+            telegram_id=message.from_user.id,
+            first_name=message.from_user.first_name,
+            last_name=message.from_user.last_name,
+            username=message.from_user.username,
+            lang_code=message.from_user.language_code,
+        )
+        
+        # Получаем лидерборд команд
+        team_data = await team_leaderboard(token, message.chat.username)
+        team_entries = team_data.get('entries', [])
+        current_team = team_data.get('current', {})
+        
+        # Формируем список команд
+        teams_list = []
+        for idx, t in enumerate(team_entries[:5], start=1):  # Топ-5 команд
+            team_name = t.get('username', 'Без названия')
+            total_scores = t.get('total_scores', 0)
             if idx == 1:
                 prefix = '🥇'
             elif idx == 2:
@@ -261,31 +280,32 @@ async def stats_command(message: types.Message):
                 prefix = '🥉'
             else:
                 prefix = '🔹'
-            lines.append(f"{prefix} {idx}. @{uname}: {xp} баллов")
-    else:
-        lines.append('\n\n❌ Среди участников чата нет зарегистрированных игроков.')
-
-    lines.append('\n\n💡 Как повысить свое место:')
-    lines.append('- Участвуйте в викторинах')
-    lines.append('- Правильно отвечайте на вопросы')
-    lines.append('- Играйте каждый день для поддержания стрика')
-
-    text = '\n'.join(lines)
+            teams_list.append(f"{prefix} {idx}. {team_name}: {total_scores} баллов")
+        
+        teams_text = '\n'.join(teams_list) if teams_list else ''
+        
+        # Позиция текущей команды
+        if current_team:
+            pos = current_team.get('position')
+            total = current_team.get('total')
+            scores = current_team.get('total_scores', 0)
+            if pos and total:
+                team_position_text = f"📊 Ваша команда: {pos} место из {total} ({scores} баллов)"
+    
+    # Используем текст из BotText
+    text = TextStatics.stats_command_text(
+        players_count=len(entries),
+        players_list=players_text,
+        teams_list=teams_text,
+        team_position=team_position_text
+    )
+    
     await message.answer(text)
 
 
-@router.message(Command('menu'))
-async def menu_command(message: types.Message, state: FSMContext):
-    # Меню как в /quiz
-    if message.chat.type == 'private':
-        await message.answer(TextStatics.get_start_menu(), reply_markup=private_menu_keyboard())
-    else:
-        await message.answer(TextStatics.solo_quiz_start_message(), reply_markup=main_menu_keyboard())
-
-
-@router.message(Command('quiz'))
-async def quiz_command(message: types.Message, state: FSMContext):
-    """Показывает меню выбора режима, как в JSON. В личке — только Соло."""
+@router.message(Command('quizplease'))
+async def quizplease_command(message: types.Message, state: FSMContext):
+    """Единая команда для начала игры. В личке — только Соло, в группе — выбор режима."""
     if message.chat.type == 'private':
         await message.answer(TextStatics.get_start_menu(), reply_markup=private_menu_keyboard())
     else:
@@ -420,7 +440,7 @@ async def finish_quiz_now(callback: types.CallbackQuery, state: FSMContext):
         system_token = os.getenv('BOT_SYSTEM_TOKEN') or os.getenv('BOT_TOKEN', '')
         points = correct
         username = callback.from_user.username or str(callback.from_user.id)
-        res = await player_game_end(username, points, system_token)
+        res = await player_game_end(username, points, system_token, chat_id=callback.message.chat.id)
         streak = None
         if isinstance(res, dict):
             if 'streak' in res:
@@ -471,6 +491,11 @@ async def text_answer(message: types.Message, state: FSMContext):
     correct_answers = [a.lower().strip() for a in q['correct_answers']]
 
     if user_answer.lower().strip() in correct_answers:
+        # Сохраняем ID сообщения пользователя для удаления при переходе к следующему вопросу
+        cleanup_ids = data.get('cleanup_message_ids', [])
+        cleanup_ids.append(message.message_id)
+        await state.update_data(cleanup_message_ids=cleanup_ids)
+        
         # Показать DM-формат результата для соло
         username = message.from_user.username or str(message.from_user.id)
         totals = {username: (data.get('correct', 0) + 1)}
@@ -487,6 +512,11 @@ async def text_answer(message: types.Message, state: FSMContext):
         await state.update_data(current_index=index + 1)
         await state.set_state(SoloGameStates.WAITING_NEXT)
     else:
+        # Сохраняем ID сообщения пользователя для удаления 
+        cleanup_ids = data.get('cleanup_message_ids', [])
+        cleanup_ids.append(message.message_id)
+        await state.update_data(cleanup_message_ids=cleanup_ids)
+        
         attempts_left -= 1
         if attempts_left <= 0:
             username = message.from_user.username or str(message.from_user.id)
@@ -619,3 +649,27 @@ async def update_texts(message: types.Message):
 
     answer_texts._current_bot_texts = {list(item.keys())[0]: list(item.values())[0] for item in get_bot_texts(os.getenv('BOT_TOKEN'))}
     await message.answer("Тексты обновлены")
+
+
+@router.callback_query(lambda c: c.data == 'help')
+async def help_callback(callback: types.CallbackQuery):
+    await callback.answer()
+    await callback.message.answer(TextStatics.get_help_message())
+
+
+@router.callback_query(lambda c: c.data == 'start_game')
+async def start_game_callback(callback: types.CallbackQuery):
+    await callback.answer()
+    await callback.message.answer(TextStatics.get_start_menu(), reply_markup=main_menu_keyboard())
+
+
+@router.callback_query(lambda c: c.data == 'notify:enable')
+async def notify_enable_callback(callback: types.CallbackQuery):
+    await callback.answer()
+    try:
+        system_token = os.getenv('BOT_SYSTEM_TOKEN') or os.getenv('BOT_TOKEN', '')
+        from api_client import player_update_notifications
+        await player_update_notifications(callback.from_user.id, True, system_token)
+        await callback.message.answer('🔔 Уведомления включены! Мы сообщим вам о новых играх.')
+    except Exception:
+        await callback.message.answer('Не удалось включить уведомления. Попробуйте позже.')

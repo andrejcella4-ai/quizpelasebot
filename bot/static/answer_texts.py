@@ -53,7 +53,7 @@ class TextStatics:
             "❌ Неправильных: {wrong_answers}\n"
             "⭐ Баллы: {xp} баллов\n\n"
             "👇 Что дальше?\n\n"
-            "🎮 Для начала новой игры используйте команду /quiz"
+            "🎮 Для начала новой игры используйте команду /quizplease"
         )
         return _t(
             'single_game_answer',
@@ -111,69 +111,13 @@ class TextStatics:
 
     @staticmethod
     def leaderboard_private_chat_error() -> str:
-        default = "Команда /leaderboard работает только в групповых чатах с командами."
+        default = "Команда /stats работает только в групповых чатах с командами."
         return _t('leaderboard_private_chat_error', default)
 
     @staticmethod
     def leaderboard_api_error() -> str:
         default = "Не удалось получить рейтинг команд. Возможно, команда не зарегистрирована в этом чате."
         return _t('leaderboard_api_error', default)
-
-    @staticmethod
-    def leaderboard_message(entries: list, current_team_info: dict = None) -> str:
-        """Формирует полное сообщение командного рейтинга"""
-        lines = []
-        
-        # Заголовок
-        header_default = "📈 Командный рейтинг — вот как сейчас обстоят дела:"
-        header = _t('leaderboard_header', header_default)
-        lines.append(header)
-        lines.append('')
-        
-        # Топ команд
-        medals = ['🥇', '🥈', '🥉']
-        for idx, entry in enumerate(entries[:10], start=1):
-            team_name = entry.get('username', 'Неизвестная команда')
-            team_scores = entry.get('total_scores', 0)
-            points_word = plural_points(team_scores)
-            
-            if idx <= 3:
-                emoji = medals[idx-1]
-            else:
-                emoji = f"{idx}."
-            
-            entry_default = "{emoji} {team_name} — {team_scores} {points_word}"
-            entry_text = _t('leaderboard_entry', entry_default, 
-                          emoji=emoji, team_name=team_name, team_scores=team_scores, points_word=points_word)
-            lines.append(entry_text)
-        
-        # Информация о текущей команде
-        if current_team_info:
-            lines.append('')
-            team_name = "Ваша команда"
-            team_scores = current_team_info.get('total_scores', 0)
-            team_rank = current_team_info.get('position', '—')
-            total_teams = current_team_info.get('total', 0)
-            points_word = plural_points(team_scores)
-            
-            current_default = "🔹 {team_name} — {team_scores} {points_word} (место {team_rank} из {total_teams})"
-            current_text = _t('leaderboard_current_team', current_default,
-                            team_name=team_name, team_scores=team_scores, points_word=points_word,
-                            team_rank=team_rank, total_teams=total_teams)
-            lines.append(current_text)
-        
-        # Мотивирующий текст
-        lines.append('')
-        footer_default = (
-            "🔥 Ещё пара удачных дней — и вы подниметесь выше!\n"
-            "Продолжайте играть каждый день, чтобы занимать топовые места 💪\n\n"
-            "🍻 А ещё лучше сыграть вживую — приходите на \"Квиз, плиз!\" в вашем городе!\n\n"
-            "Живое общение, юмор и много вопросов — будет классно! Регистрация как обычно на quizplease.ru"
-        )
-        footer = _t('leaderboard_footer', footer_default)
-        lines.append(footer)
-        
-        return '\n'.join(lines)
 
     @staticmethod
     def outdated_question() -> str:
@@ -188,10 +132,12 @@ class TextStatics:
         return _t('no_teams_cannot_start', 'Игра не может начаться без команд!')
 
     @staticmethod
-    def show_right_answer_only(right_answer: str, comment: str | None = None) -> str:
-        comment_block = f"\n\nКомментарий: {comment}" if comment else ""
-        return _t('show_right_answer_only', '✅ Правильный ответ: {right_answer}{comment_block}', 
-                  right_answer=right_answer, comment_block=comment_block)
+    def show_right_answer_only(right_answer: str, comment: str | None = None, earned_xp: int = 0) -> str:
+        comment_block = f"\n\n💡 {comment}" if comment else ""
+        earned_block = f"\n\n📊 Вы заработали: {earned_xp} Очков" if earned_xp > 0 else ""
+        default = '✅ Поздравляю, это правильный ответ!{comment_block}{earned_block}'
+        return _t('show_right_answer_only', default, 
+                  right_answer=right_answer, comment_block=comment_block, earned_block=earned_block, earned_xp=earned_xp)
 
     @staticmethod
     def correct_inline_hint() -> str:
@@ -212,7 +158,7 @@ class TextStatics:
             '🏆 Результаты раунда:\n'
             '👥 Команда "{team_name}": {score} баллов\n\n'
             '👇 Что дальше?\n\n'
-            '🎮 Для начала новой игры используйте команду /menu'
+            '🎮 Для начала новой игры используйте команду /quizplease'
         )
         return _t('team_quiz_finished_with_scores', default, team_name=team_name, score=score)
 
@@ -245,7 +191,7 @@ class TextStatics:
             for idx, (name, total_points) in enumerate(totals_sorted, start=1):
                 handle = f"@{name}"
                 totals_lines.append(f"{idx}. {handle}: {total_points} баллов")
-            stats_block = "📊 Общие баллы участников:\n" + "\n".join(totals_lines)
+            stats_block = "📊 Баллы участников в чате:\n" + "\n".join(totals_lines)
         elif participants_total_points is not None:
             stats_block = f"💰 Сумма баллов участников: {participants_total_points}"
         else:
@@ -256,7 +202,7 @@ class TextStatics:
             "{results}\n"
             "👇 Что дальше?\n\n\n"
             "{stats_block}\n"
-            "🎮 Для начала новой игры используйте команду /quiz"
+            "🎮 Для начала новой игры используйте команду /quizplease"
         )
         return _t('dm_quiz_finished_full', default, results=results, stats_block=stats_block)
 
@@ -318,7 +264,7 @@ class TextStatics:
 
     @staticmethod
     def stopped_quiz() -> str:
-        return _t('stopped_quiz', '🛑 Викторина остановлена.\nДля начала новой используйте команду /quiz')
+        return _t('stopped_quiz', '🛑 Викторина остановлена.\nДля начала новой используйте команду /quizplease')
 
     @staticmethod
     def time_left_30() -> str:
@@ -367,6 +313,49 @@ class TextStatics:
             "📝 {captain}, напиши название команды вашего чата в ответ на это сообщение — и погнали! 💥"
         )
         return _t('get_start_message', default, captain=captain)
+    
+    @staticmethod
+    def get_start_message_private(username: str):
+        default = (
+            "👋 Привет, {username}!\n\n"
+            "🎮 Добро пожаловать в QuizPlease!\n\n"
+            "📝 Здесь ты можешь:\n"
+            "• Играть в одиночные викторины\n"
+            "• Тренироваться и улучшать свои знания\n"
+            "• Следить за своей статистикой\n\n"
+            "🚀 Используй команду /quizplease для начала игры\n"
+            "ℹ️ Команда /help покажет все доступные команды"
+        )
+        return _t('start_message_private', default, username=username)
+    
+    @staticmethod
+    def get_start_message_group():
+        default = (
+            "👋 Привет всем!\n\n"
+            "🎮 Я QuizPlease Bot - ваш проводник в мир викторин!\n\n"
+            "📝 В этом чате я могу:\n"
+            "• Проводить командные викторины\n"
+            "• Организовывать соревновательные игры\n"
+            "• Вести статистику игроков и команд\n\n"
+            "🚀 Команды:\n"
+            "/quizplease - начать игру\n"
+            "/stats - посмотреть статистику чата\n"
+            "/help - все доступные команды\n\n"
+            "Давайте играть вместе! 🎯"
+        )
+        return _t('start_message_group', default)
+
+    @staticmethod
+    def get_start_message_group_new():
+        default = (
+            "👋 Привет, команда!\n\n"
+            "Я теперь в вашем чате и готов проводить викторины.\n\n"
+            "🚀 Команды:\n"
+            "/quizplease — начать игру\n"
+            "/stats — посмотреть статистику чата\n\n"
+            "Сделайте меня админом, чтобы я мог удалять служебные сообщения во время игры."
+        )
+        return _t('start_message_group_new', default)
 
     @staticmethod
     def solo_quiz_start_message():
@@ -387,15 +376,6 @@ class TextStatics:
             "👇 Итак, тема для раунда:"
         )
         return _t('dm_quiz_start_message', default)
-
-    @staticmethod
-    def dm_quiz_after_start_message(question_amount: int):
-        default = (
-            "🎯 Категория \"Обо всем\" — принял!\n"
-            "Будет жарко 🔥 — {question_amount} вопросов, 1 балл за каждый правильный ответ.\n\n"
-            "Скоро начнём! 🧠⚡️"
-        )
-        return _t('dm_quiz_after_start_message', default, question_amount=question_amount)
 
     @staticmethod
     def dm_quiz_question_result_message(
@@ -442,17 +422,17 @@ class TextStatics:
         )
 
     @staticmethod
-    def dm_quiz_question_template(text: str, timer: int, current_q_idx: int) -> str:
+    def dm_quiz_question_template(text: str, timer: int, current_q_idx: int, total_questions: int = 0) -> str:
         default = (
-            "Вопрос №{current_q_idx}\n"
+            "Вопрос №{current_q_idx} из {total_questions}\n"
             "🧠  {text}\n\n"
             "⏱ ТАЙМЕР: {timer} сек"
         )
-        return _t('dm_quiz_question_template', default, text=text, timer=timer, current_q_idx=current_q_idx)
+        return _t('dm_quiz_question_template', default, text=text, timer=timer, current_q_idx=current_q_idx, total_questions=total_questions)
 
     @staticmethod
-    def team_quiz_question_template(current_q_idx: int, username: str, text: str, timer: int) -> str:
-        base = TextStatics.dm_quiz_question_template(text, timer, current_q_idx)
+    def team_quiz_question_template(current_q_idx: int, username: str, text: str, timer: int, total_questions: int = 0) -> str:
+        base = TextStatics.dm_quiz_question_template(text, timer, current_q_idx, total_questions)
         default_suffix = (
             "\n💡 {username}, отвечай командами /otvet и /answer или просто ответь на это сообщение\n"
             "📝 У вас 2 попытки"
@@ -505,17 +485,35 @@ class TextStatics:
         return _t('team_prep_message_started', default, quiz_name=quiz_name, captain=captain)
 
     @staticmethod
-    def team_quiz_question_wrong_answer(attempts_remaining: int, right_answer: str, comment: str | None = None) -> str:
+    def team_quiz_question_wrong_answer(attempts_remaining: int, right_answer: str, comment: str | None = None, earned_scores: int = 0) -> str:
         if attempts_remaining == 1:
             return _t('team_quiz_question_wrong_answer_1', '❌ Неправильный ответ!\n осталась 1 попытка')
         else:
-            comment_block = f"\n\nКомментарий: {comment}" if comment else ""
+            comment_block = f"\n\n💡 {comment}" if comment else ""
+            earned_block = f"\n\n📊 Вы заработали: {earned_scores} Очков"
+            default = '❌ Неправильный ответ! Попыток больше нет.\n\n✅ Правильный ответ: {right_answer}{comment_block}{earned_block}'
             return _t(
                 'team_quiz_question_wrong_answer_0',
-                '❌ Неправильный ответ! Попыток больше нет.\n✅ Правильный ответ: {right_answer}{comment_block}\n\nПереходим к следующему вопросу...',
+                default,
                 right_answer=right_answer,
-                comment_block=comment_block
+                comment_block=comment_block,
+                earned_block=earned_block,
+                earned_scores=earned_scores
             )
+    
+    @staticmethod
+    def team_timeout_message(right_answer: str, comment: str | None = None, earned_xp: int = 0) -> str:
+        comment_block = f"\n\n💡 {comment}" if comment else ""
+        earned_block = f"\n\n📊 Вы заработали: {earned_xp} Очков"
+        default = "⏰ Время вышло!\n\n✅ Правильный ответ: {right_answer}{comment_block}{earned_block}"
+        return _t(
+            'team_timeout_message',
+            default,
+            right_answer=right_answer,
+            comment_block=comment_block,
+            earned_block=earned_block,
+            earned_xp=earned_xp
+        )
 
     @staticmethod
     def get_registration_dm_message(usernames: list[str]) -> str:
@@ -535,9 +533,9 @@ class TextStatics:
         return _t('get_registration_dm_message', default, count=len(usernames) or 1, participants=participants_text)
 
     @staticmethod
-    def format_question_text(index: int, text: str, time_limit: int) -> str:
+    def format_question_text(index: int, text: str, time_limit: int, total_questions: int = 0) -> str:
         # Формат вопроса как в примерах JSON
-        return TextStatics.dm_quiz_question_template(text, time_limit, index).strip()
+        return TextStatics.dm_quiz_question_template(text, time_limit, index, total_questions).strip()
     
     @staticmethod
     def get_solo_intro(name: str, amount: int) -> str:
@@ -573,16 +571,21 @@ class TextStatics:
             "ℹ️ Квиз, плиз! Мистер Бот\n\n"
             "Бот создан для того, чтобы вы играли в \"Квиз, плиз!\" прямо в Telegram — быстро, весело и с пользой для мозга 🧠⚡\n\n"
             "📌 Основные команды:\n\n"
-            "🎮 /quiz — начать новую игру\n\n"
+            "🎮 /quizplease — начать новую игру\n\n"
             "🛑 /stop — остановить текущую игру\n\n"
-            "📊 /leaderboard — рейтинги игроков и команды\n\n"
+            "📊 /stats — статистика игроков и команд (только в групповых чатах)\n\n"
             "❓ /help — это сообщение\n\n"
             "🧠 Как отвечать на вопросы:\n\n"
             "В соревновании или 1-1 с ботом — жмите кнопки с вариантами\n\n"
             "В командном режиме — отвечая на сообщение с вопросом\n\n"
             "✨ Как начисляется XP:\n\n"
-            "Соревнование или 1-1 с ботом — 10 очков каждому за правильный ответ\n\n"
+            "Соревнование — каждый игрок получает очки за правильные ответы в рамках чата\n\n"
             "Командный режим — 2 балла команде за правильный ответ с первой попытки и 1 балл - со второй\n\n"
+            "📈 Статистика в чатах:\n\n"
+            "В групповых чатах ведется отдельная статистика игроков. Используйте /stats чтобы увидеть:\n"
+            "• Топ-5 игроков в вашем чате\n"
+            "• Рейтинг команд\n"
+            "• Позицию вашей команды\n\n"
             "Бот продолжает развиваться — зовите друзей, играйте каждый день и прокачивайтесь вместе! 🚀"
         )
         return _t('get_help_message', default)
@@ -600,3 +603,31 @@ class TextStatics:
             "📊 Команда /stats должна использоваться в групповых чатах для показа рейтинга участников чата."
         )
         return _t('use_stats_in_group_chats', default)
+    
+    @staticmethod
+    def stats_command_text(players_count: int, players_list: str, teams_list: str = '', team_position: str = '') -> str:
+        default = (
+            "📊 Статистика чата\n\n"
+            "🏆 Топ-5 игроков в этом чате:\n"
+            "{players_list}\n"
+            "Всего игроков с очками: {players_count}\n\n"
+            "{teams_section}"
+            "💡 Как заработать очки:\n"
+            "- Участвуйте в соревновательном режиме\n"
+            "- Отвечайте правильно на вопросы\n"
+            "- Играйте регулярно"
+        )
+        
+        teams_section = ""
+        if teams_list:
+            teams_section = f"🏆 Топ команд:\n{teams_list}\n"
+        if team_position:
+            teams_section += f"{team_position}\n\n"
+        
+        return _t(
+            'stats_command_text',
+            default,
+            players_list=players_list,
+            players_count=players_count,
+            teams_section=teams_section
+        )

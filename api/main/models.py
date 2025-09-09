@@ -15,6 +15,37 @@ class City(models.Model):
         verbose_name_plural = 'Города'
 
 
+class Chat(models.Model):
+    chat_id = models.BigIntegerField(unique=True, verbose_name='Chat ID')
+    chat_username = models.CharField(max_length=255, blank=True, null=True, verbose_name='Chat username')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='Дата создания')
+    is_active = models.BooleanField(default=True, verbose_name='Активен')
+
+    def __str__(self):
+        return f"Chat {self.chat_username or self.chat_id}"
+
+    class Meta:
+        verbose_name = 'Чат'
+        verbose_name_plural = 'Чаты'
+
+
+class PlayerInChat(models.Model):
+    player = models.ForeignKey("TelegramPlayer", on_delete=models.CASCADE, related_name='chat_scores', verbose_name='Игрок')
+    chat = models.ForeignKey(Chat, on_delete=models.CASCADE, related_name='player_scores', verbose_name='Чат')
+    points = models.PositiveIntegerField(default=0, verbose_name='Очки в чате')
+    last_played_at = models.DateTimeField(blank=True, null=True, verbose_name='Последняя игра в чате')
+
+    def __str__(self):
+        return f"{self.player} в {self.chat}: {self.points} очков"
+
+    class Meta:
+        verbose_name = 'Игрок в чате'
+        verbose_name_plural = 'Игроки в чатах'
+        constraints = [
+            models.UniqueConstraint(fields=['player', 'chat'], name='unique_player_chat')
+        ]
+
+
 class Team(models.Model):
     name = models.CharField(max_length=255, verbose_name='Название команды')
     captain = models.ForeignKey('TelegramPlayer', on_delete=models.CASCADE, verbose_name='Капитан')

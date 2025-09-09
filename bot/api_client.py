@@ -30,10 +30,12 @@ async def auth_player(
             return data['token']
 
 
-async def player_game_end(username: str | None, points: int, system_token: str) -> dict:
+async def player_game_end(username: str | None, points: int, system_token: str, chat_id: int | None = None) -> dict:
     headers = {'Authorization': f'Token {system_token}'}
     async with aiohttp.ClientSession(headers=headers) as session:
         payload = {'username': username, 'points': points}
+        if chat_id is not None:
+            payload['chat_id'] = chat_id
         async with session.post(f'{BASE_URL}/player/game-end/', json=payload) as resp:
             resp.raise_for_status()
             return await resp.json()
@@ -43,6 +45,15 @@ async def players_game_end_bulk(results: list[dict], system_token: str) -> dict:
     headers = {'Authorization': f'Token {system_token}'}
     async with aiohttp.ClientSession(headers=headers) as session:
         async with session.post(f'{BASE_URL}/player/game-end/', json={'results': results}) as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+
+async def chat_register(system_token: str, chat_id: int, chat_username: str | None) -> dict:
+    headers = {'Authorization': f'Token {system_token}'}
+    async with aiohttp.ClientSession(headers=headers) as session:
+        payload = {'chat_id': chat_id, 'chat_username': chat_username}
+        async with session.post(f'{BASE_URL}/chat/register/', json=payload) as resp:
             resp.raise_for_status()
             return await resp.json()
 
@@ -92,6 +103,14 @@ async def team_leaderboard(token: str, chat_username: str) -> dict:
     headers = {'Authorization': f'Token {token}'}
     async with aiohttp.ClientSession(headers=headers) as session:
         async with session.get(f'{BASE_URL}/team/leaderboard/{chat_username}/') as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+
+async def chat_leaderboard(chat_id: int, system_token: str) -> dict:
+    headers = {'Authorization': f'Token {system_token}'}
+    async with aiohttp.ClientSession(headers=headers) as session:
+        async with session.get(f'{BASE_URL}/chat/{chat_id}/leaderboard/') as resp:
             resp.raise_for_status()
             return await resp.json()
 
@@ -166,6 +185,16 @@ async def get_players_total_points(usernames: list[str], system_token: str) -> l
     payload = {'usernames': usernames}
     async with aiohttp.ClientSession(headers=headers) as session:
         async with session.post(f'{BASE_URL}/player/list/total-points/', json=payload) as resp:
+            resp.raise_for_status()
+            return await resp.json()
+
+
+async def get_players_chat_points(usernames: list[str], chat_id: int, system_token: str) -> list[dict]:
+    """Возвращает список {username, points} по списку usernames для конкретного чата."""
+    headers = {'Authorization': f'Token {system_token}'}
+    payload = {'usernames': usernames, 'chat_id': chat_id}
+    async with aiohttp.ClientSession(headers=headers) as session:
+        async with session.post(f'{BASE_URL}/player/list/chat-points/', json=payload) as resp:
             resp.raise_for_status()
             return await resp.json()
 

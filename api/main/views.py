@@ -18,11 +18,12 @@ import pandas as pd
 import hashlib
 
 import pytz
-from .models import TelegramPlayer, Quiz, PlayerToken, Team, PlanTeamQuiz, BotText, City, Question, QuestionUsage, Config, Topic, QuestionAnswer
+from .models import TelegramPlayer, Quiz, PlayerToken, Team, PlanTeamQuiz, BotText, City, Question, QuestionUsage, Config, Topic, QuestionAnswer, Chat, PlayerInChat
 from .serializers import (
     AuthPlayerSerializer, QuizInfoSerializer, QuestionListSerializer, TeamSerializer,
     PlanTeamQuizSerializer, TelegramPlayerUpdateSerializer, LeaderboardEntrySerializer,
-    BotTextDictSerializer, TeamLeaderboardEntrySerializer, ConfigSerializer
+    BotTextDictSerializer, TeamLeaderboardEntrySerializer, ConfigSerializer,
+    ChatLeaderboardEntrySerializer, ChatSerializer
 )
 from .authentication import PlayerTokenAuthentication, SystemTokenAuthentication
 
@@ -258,6 +259,39 @@ class PlayersTotalPointsView(APIView):
         return Response(list(players))
 
 
+class PlayersChatPointsView(APIView):
+    authentication_classes = [SystemTokenAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        payload = request.data
+        usernames = payload.get('usernames', [])
+        chat_id = payload.get('chat_id')
+        
+        if not usernames or not chat_id:
+            return Response([])
+
+        try:
+            chat = Chat.objects.get(chat_id=chat_id)
+        except Chat.DoesNotExist:
+            return Response([])
+
+        players = TelegramPlayer.objects.filter(username__in=usernames)
+        result = []
+        for player in players:
+            try:
+                player_in_chat = PlayerInChat.objects.get(player=player, chat=chat)
+                points = player_in_chat.points
+            except PlayerInChat.DoesNotExist:
+                points = 0
+            
+            result.append({
+                'username': player.username,
+                'points': points
+            })
+        return Response(result)
+
+
 class PlayerGameEndView(APIView):
     authentication_classes = [SystemTokenAuthentication]
     permission_classes = [permissions.IsAuthenticated]
@@ -280,6 +314,7 @@ class PlayerGameEndView(APIView):
         for item in entries:
             username = item.get('username')
             points = int(item.get('points', 0) or 0)
+            chat_id = item.get('chat_id')
             if not username:
                 continue
             try:
@@ -303,9 +338,49 @@ class PlayerGameEndView(APIView):
             player.total_xp = (player.total_xp or 0) + max(0, points)
             player.last_played_at = now
             player.save(update_fields=['total_xp', 'last_played_at', 'current_streak'])
+
+            # Если указан chat_id — учитываем очки в контексте конкретного чата
+            try:
+                if chat_id is not None:
+                    try:
+                        chat_id_int = int(chat_id)
+                    except Exception:
+                        chat_id_int = None
+                    if chat_id_int is not None:
+                        chat_obj, _ = Chat.objects.get_or_create(chat_id=chat_id_int)
+                        pic, _ = PlayerInChat.objects.get_or_create(player=player, chat=chat_obj)
+                        pic.points = (pic.points or 0) + max(0, points)
+                        pic.last_played_at = now
+                        pic.save(update_fields=['points', 'last_played_at'])
+            except Exception:
+                # Не прерываем весь процесс начисления при локальной ошибке
+                pass
             updated.append({'username': username, 'streak': player.current_streak, 'total_xp': player.total_xp})
 
         return Response({'updated': updated, 'not_found': not_found})
+
+
+class ChatRegisterView(APIView):
+    """Регистрация/апдейт чата по chat_id (и chat_username).
+    Авторизация: системный токен.
+    Тело: { chat_id: int, chat_username?: str }
+    Ответ: { created: bool, id: int }
+    """
+    authentication_classes = [SystemTokenAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        try:
+            chat_id = int(request.data.get('chat_id'))
+        except Exception:
+            return Response({'detail': 'chat_id must be integer'}, status=status.HTTP_400_BAD_REQUEST)
+        chat_username = request.data.get('chat_username') or None
+
+        chat, created = Chat.objects.update_or_create(
+            chat_id=chat_id,
+            defaults={'chat_username': chat_username}
+        )
+        return Response({'created': created, 'id': chat.id})
  
 
 class TeamGameEndView(APIView):
@@ -460,6 +535,40 @@ class TeamLeaderboardView(APIView):
             pass
         
         return Response({'entries': serializer.data, 'current': current})
+
+
+class ChatLeaderboardView(APIView):
+    """Лидерборд игроков в конкретном чате"""
+    authentication_classes = [SystemTokenAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, chat_id):
+        try:
+            # Преобразуем строковый chat_id в число
+            chat_id_int = int(chat_id)
+            chat = Chat.objects.get(chat_id=chat_id_int)
+        except (Chat.DoesNotExist, ValueError):
+            return Response({'detail': 'Chat not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Получаем топ-10 игроков в этом чате
+        player_scores = (
+            PlayerInChat.objects
+            .filter(chat=chat, points__gt=0)
+            .select_related('player')
+            .order_by('-points')[:10]
+        )
+
+        entries = []
+        for ps in player_scores:
+            entries.append({
+                'username': ps.player.username or str(ps.player.telegram_id),
+                'points': ps.points,
+                'first_name': ps.player.first_name,
+                'last_name': ps.player.last_name or ''
+            })
+
+        serializer = ChatLeaderboardEntrySerializer(entries, many=True)
+        return Response({'entries': serializer.data})
 
 
 class TeamByChatView(APIView):

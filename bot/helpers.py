@@ -9,9 +9,6 @@ import pytz
 
 from aiogram import types
 from aiogram.fsm.context import FSMContext
-from telethon import TelegramClient
-from telethon.sessions import MemorySession
-
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
@@ -19,8 +16,8 @@ from states.fsm import SoloGameStates
 from states.local_state import GameState, get_game_state, _get_game_key_for_chat, _games_state
 from static.answer_texts import TextStatics
 from static.choices import QuestionTypeChoices
-from keyboards import create_variant_keyboard, question_result_keyboard, main_menu_keyboard
-from api_client import players_game_end_bulk, team_game_end, auth_player, create_team, get_players_total_points
+from keyboards import create_variant_keyboard, question_result_keyboard, game_finished_keyboard
+from api_client import players_game_end_bulk, team_game_end, auth_player, create_team, get_players_total_points, get_players_chat_points
 
 
 async def load_and_send_image(bot, chat_id: int, image_url: str, text: str, reply_markup=None):
@@ -69,6 +66,25 @@ async def start_game_questions(callback: types.CallbackQuery, game_state: GameSt
     if not game_state.questions:
         await finalize_game(callback.message.bot, callback.message.chat.id, game_state)
         return
+
+    # Удаляем сообщения регистрации и подготовки сразу при начале игры
+    try:
+        for mid in getattr(game_state, 'registration_message_ids', []) or []:
+            try:
+                await callback.message.bot.delete_message(callback.message.chat.id, mid)
+            except Exception:
+                pass
+        game_state.registration_message_ids = []
+        
+        # Удаляем основное сообщение регистрации/подготовки
+        if game_state.message_id:
+            try:
+                await callback.message.bot.delete_message(callback.message.chat.id, game_state.message_id)
+            except Exception:
+                pass
+            game_state.message_id = None
+    except Exception:
+        pass
 
     # Проверяем, что есть участники
     if game_state.mode == "dm":
@@ -129,12 +145,14 @@ async def send_next_question(bot, chat_id: int, game_state: GameState):
             username=mention,
             text=question["text"],
             timer=question.get("time_to_answer", 120),
+            total_questions=game_state.total_questions,
         )
     else:
         text = TextStatics.format_question_text(
             game_state.current_q_idx + 1,
             question["text"],
             question.get("time_to_answer", 120),
+            game_state.total_questions,
         )
 
     if question["question_type"] == QuestionTypeChoices.VARIANT:
@@ -185,6 +203,9 @@ async def send_next_question(bot, chat_id: int, game_state: GameState):
         return
 
     game_state.current_question_msg_id = sent_msg.message_id
+    # Инициализируем контейнер для последующего удаления вспомогательных сообщений
+    if not hasattr(game_state, 'cleanup_message_ids'):
+        game_state.cleanup_message_ids = []
     game_state.waiting_next = False
     game_state.attempts_left_by_user.clear()
     # Сбрасываем списки ответов для следующего вопроса
@@ -213,30 +234,26 @@ async def send_next_question(bot, chat_id: int, game_state: GameState):
                 game_state.question_result_sent = True
                 if game_state.mode == "team":
                     should_advance_team = True
+                    # Отправляем сообщение о таймауте для командного режима
+                    correct_answer = question.get("correct_answers", [game_state.current_correct_answer])[0]
+                    comment = question.get('comment', None)
+                    earned_xp = 0  # При таймауте команда не получает очков
+                    timeout_text = TextStatics.team_timeout_message(correct_answer, comment, earned_xp)
+                    
+                    # Проверяем, является ли это последним вопросом
+                    is_last_question = (game_state.current_q_idx + 1) >= len(game_state.questions)
+                    _sent = await bot.send_message(chat_id, timeout_text, reply_markup=question_result_keyboard(include_finish=False, is_last_question=is_last_question))
+                    try:
+                        game_state.cleanup_message_ids.append(_sent.message_id)
+                    except Exception:
+                        pass
                 else:
                     game_state.waiting_next = True
                     should_send_dm = True
 
+            # Для команд результат уже отправлен выше, переходим к следующему вопросу
             if game_state.mode == "team":
-                # Команда: короткое сообщение и гарантированный переход дальше
-                try:
-                    correct = game_state.current_correct_answer
-                    
-                    # Проверяем, является ли это последним вопросом
-                    is_last_question = (game_state.current_q_idx + 1) >= len(game_state.questions)
-
-                    game_state.waiting_next = True
-                    await bot.send_message(
-                        chat_id,
-                        "⌛️ Время вышло!\n\n" + TextStatics.show_right_answer_only(correct),
-                        reply_markup=question_result_keyboard(include_finish=False, is_last_question=is_last_question)
-                    )
-                except Exception as e:
-                    print(f"Оибка при отправке сообщения с правильным ответом для команды: {e}")
-                    pass
-                #if should_advance_team:
-                    # Запланируем переход как отдельную задачу, чтобы он произошёл даже при отмене текущей корутины
-                #    asyncio.create_task(move_to_next_question(bot, chat_id, game_state))
+                game_state.waiting_next = True
                 return
 
             if should_send_dm:
@@ -256,7 +273,11 @@ async def send_next_question(bot, chat_id: int, game_state: GameState):
                     totals=totals,
                     comment=question.get('comment', None),
                 )
-                await bot.send_message(chat_id, result_text, reply_markup=question_result_keyboard(include_finish=False, is_last_question=is_last_question))
+                _sent = await bot.send_message(chat_id, result_text, reply_markup=question_result_keyboard(include_finish=False, is_last_question=is_last_question))
+                try:
+                    game_state.cleanup_message_ids.append(_sent.message_id)
+                except Exception:
+                    pass
                 # Явно включаем фазу ожидания Next (на случай гонок)
                 game_state.waiting_next = True
                 game_state.question_result_sent = True
@@ -284,6 +305,34 @@ async def move_to_next_question(bot, chat_id: int, game_state: GameState):
     
     # Небольшая пауза перед следующим вопросом
     await asyncio.sleep(1)
+
+    # Удаляем вспомогательные сообщения, ответы пользователей и предыдущий вопрос
+    try:
+        # Удаляем вспомогательные сообщения (результаты, таймеры)
+        for mid in getattr(game_state, 'cleanup_message_ids', []) or []:
+            try:
+                await bot.delete_message(chat_id, mid)
+            except Exception:
+                pass
+        game_state.cleanup_message_ids = []
+        
+        # Удаляем ответы пользователей (если бот имеет права админа)
+        for mid in getattr(game_state, 'user_answer_message_ids', []) or []:
+            try:
+                await bot.delete_message(chat_id, mid)
+            except Exception:
+                pass  # Нет прав или сообщение уже удалено
+        game_state.user_answer_message_ids = []
+        
+        # Удаляем предыдущий вопрос
+        if game_state.current_question_msg_id:
+            try:
+                await bot.delete_message(chat_id, game_state.current_question_msg_id)
+            except Exception:
+                pass
+            game_state.current_question_msg_id = None
+    except Exception:
+        pass
     
     if game_state.current_q_idx >= len(game_state.questions):
         # Игра завершена
@@ -314,13 +363,13 @@ async def show_final_results(bot, chat_id: int, game_state: GameState):
                 system_token = os.getenv('BOT_SYSTEM_TOKEN') or os.getenv('BOT_TOKEN', '')
                 usernames = list(game_state.players)
                 if usernames and system_token:
-                    api_items = await get_players_total_points(usernames, system_token)
-                    # api_items: list of {username, total_xp}
+                    api_items = await get_players_chat_points(usernames, chat_id, system_token)
+                    # api_items: list of {username, points}
                     players_totals = []
                     for item in api_items:
                         if isinstance(item, dict):
                             uname = item.get('username')
-                            total = int(item.get('total_xp', 0))
+                            total = int(item.get('points', 0))
                             if uname:
                                 players_totals.append((uname, total))
                     participants_total_points = sum(total for _, total in players_totals) if players_totals else 0
@@ -367,7 +416,7 @@ async def finalize_game(bot, chat_id: int, game_state: GameState):
                 if game_state.scores:
                     system_token = os.getenv('BOT_SYSTEM_TOKEN') or os.getenv('BOT_TOKEN', '')
                     results = [
-                        {'username': username, 'points': int(score)}
+                        {'username': username, 'points': int(score), 'chat_id': int(chat_id)}
                         for username, score in game_state.scores.items()
                     ]
                     await players_game_end_bulk(results, system_token)
@@ -379,7 +428,34 @@ async def finalize_game(bot, chat_id: int, game_state: GameState):
             return
         final_text = await show_final_results(bot, chat_id, game_state)
         game_state.finished_sent = True
-        await bot.send_message(chat_id, final_text)
+        await bot.send_message(chat_id, final_text, reply_markup=game_finished_keyboard())
+        # Очистка всех сообщений после окончания игры
+        try:
+            # Удаляем вспомогательные сообщения результатов
+            for mid in getattr(game_state, 'cleanup_message_ids', []) or []:
+                try:
+                    await bot.delete_message(chat_id, mid)
+                except Exception:
+                    pass
+            game_state.cleanup_message_ids = []
+            
+            # Удаляем оставшиеся ответы пользователей
+            for mid in getattr(game_state, 'user_answer_message_ids', []) or []:
+                try:
+                    await bot.delete_message(chat_id, mid)
+                except Exception:
+                    pass  # Нет прав или сообщение уже удалено
+            game_state.user_answer_message_ids = []
+            
+            # Удаляем текущий вопрос
+            if game_state.current_question_msg_id:
+                try:
+                    await bot.delete_message(chat_id, game_state.current_question_msg_id)
+                except Exception:
+                    pass
+                game_state.current_question_msg_id = None
+        except Exception:
+            pass
     finally:
         # Очистить состояние
         game_key = _get_game_key_for_chat(chat_id)
@@ -449,11 +525,15 @@ async def process_answer(bot, chat_id: int, game_state: GameState, username: str
             is_last_question = (game_state.current_q_idx + 1) >= len(game_state.questions)
 
             game_state.waiting_next = True
-            await bot.send_message(
+            _sent = await bot.send_message(
                 chat_id,
-                TextStatics.show_right_answer_only(current_question.get("correct_answers", [game_state.current_correct_answer])[0], current_question.get('comment', None)),
+                TextStatics.show_right_answer_only(current_question.get("correct_answers", [game_state.current_correct_answer])[0], current_question.get('comment', None), gain),
                 reply_markup=question_result_keyboard(include_finish=False, is_last_question=is_last_question)
             )
+            try:
+                game_state.cleanup_message_ids.append(_sent.message_id)
+            except Exception:
+                pass
             return
         else:
             # DM режим — просто ответим на клик
@@ -466,10 +546,12 @@ async def process_answer(bot, chat_id: int, game_state: GameState, username: str
             attempts_left = game_state.attempts_left_by_user[username]
 
             # Сообщаем пользователю об оставшихся попытках
+            earned_scores = 0  # При неправильном ответе команда не получает очков
             wrong_text = TextStatics.team_quiz_question_wrong_answer(
                 attempts_left,
                 current_question.get("correct_answers", [current_question["correct_answer"]])[0],
-                current_question.get('comment', None)
+                current_question.get('comment', None),
+                earned_scores
             ) if game_state.mode == "team" else TextStatics.dm_text_wrong_attempt(
                 attempts_left,
                 current_question.get("correct_answers", [current_question["correct_answer"]])[0],
@@ -490,11 +572,19 @@ async def process_answer(bot, chat_id: int, game_state: GameState, username: str
                     is_last_question = (game_state.current_q_idx + 1) >= len(game_state.questions)
                     
                     game_state.waiting_next = True
-                    await bot.send_message(chat_id, wrong_text, reply_markup=question_result_keyboard(include_finish=False, is_last_question=is_last_question))
+                    _sent = await bot.send_message(chat_id, wrong_text, reply_markup=question_result_keyboard(include_finish=False, is_last_question=is_last_question))
+                    try:
+                        game_state.cleanup_message_ids.append(_sent.message_id)
+                    except Exception:
+                        pass
                     return
                 # В DM режиме — ждём остальных через общий механизм
             else:
-                await bot.send_message(chat_id, wrong_text)
+                _sent = await bot.send_message(chat_id, wrong_text)
+                try:
+                    game_state.cleanup_message_ids.append(_sent.message_id)
+                except Exception:
+                    pass
         else:
             # Для вариантов — сразу отмечаем как неправильный
             game_state.answers_wrong.add(username)
@@ -545,18 +635,8 @@ async def check_if_all_answered(bot, chat_id: int, game_state: GameState):
                 should_send_dm = True
 
         if game_state.mode == "team":
-            try:
-                # Проверяем, является ли это последним вопросом
-                is_last_question = (game_state.current_q_idx + 1) >= len(game_state.questions)
-                
-                await bot.send_message(
-                    chat_id,
-                    TextStatics.show_right_answer_only(current_question.get('correct_answers', [game_state.current_correct_answer])[0], current_question.get('comment', None)),
-                    reply_markup=question_result_keyboard(include_finish=False, is_last_question=is_last_question)
-                )
-            except Exception as e:
-                print(f"Оибка при отправке сообщения с правильным ответом для команды: {e}")
-
+            # В командном режиме не отправляем дополнительное сообщение когда все ответили
+            # Результат покажет таймер или будет показан при переходе к следующему вопросу
             return
 
         if should_send_dm:
@@ -576,7 +656,11 @@ async def check_if_all_answered(bot, chat_id: int, game_state: GameState):
                 totals=totals,
                 comment=current_question.get('comment', None),
             )
-            await bot.send_message(chat_id, result_text, reply_markup=question_result_keyboard(include_finish=False, is_last_question=is_last_question))
+            _sent = await bot.send_message(chat_id, result_text, reply_markup=question_result_keyboard(include_finish=False, is_last_question=is_last_question))
+            try:
+                game_state.cleanup_message_ids.append(_sent.message_id)
+            except Exception:
+                pass
 
 
 async def question_transition_delay(bot, chat_id: int, game_state: GameState, delay: int = 3):
@@ -733,7 +817,7 @@ def format_game_status(game_state, question_text: str | None = None) -> str:
         return format_team_registration(game_state.teams, seconds_left, game_state.quiz_name)
 
     if game_state.status == 'playing':
-        lines = [f"🎮 Вопрос №{game_state.current_q_idx + 1} из {len(game_state.questions)}"]
+        lines = [f"🎮 Вопрос №{game_state.current_q_idx + 1} из {game_state.total_questions}"]
         
         if question_text:
             lines.append(f"❓ {question_text}")
@@ -811,8 +895,8 @@ def get_today_games_avaliable(plans: list[dict]) -> list[dict]:
     return [
         p for p in plans if (
             # Преобразуем строку в datetime с timezone, учитывая что DRF возвращает строку с часовым поясом
-            ((plan_datetime := datetime.fromisoformat(p['scheduled_datetime'])) <= current_moscow_time and
-            plan_datetime.date() == current_moscow_time.date()) or p['always_active'] == True
+            p['always_active'] == True or ((plan_datetime := datetime.fromisoformat(p['scheduled_datetime'])) <= current_moscow_time and
+            plan_datetime.date() == current_moscow_time.date())
         )
     ]
 
@@ -827,35 +911,4 @@ def get_nearest_game_avaliable(plans: list[dict]) -> dict | None:
     return nearest[0] if nearest else None
 
 
-
-@asynccontextmanager
-async def get_telethon_client() -> AsyncGenerator[TelegramClient, None]:
-    """
-    Контекстный менеджер для Telethon клиента.
-
-    Использование:
-        async with get_telethon_client() as client:
-            # Используем client
-            participants = await client.get_participants(chat_id)
-    """
-    client = None
-    try:
-        client = TelegramClient(
-            MemorySession(),
-            api_id=os.getenv('TELETHON_API_ID'),
-            api_hash=os.getenv('TELETHON_API_HASH'),
-        )
-
-        # Подключаемся с bot token
-        await client.start(bot_token=os.getenv('BOT_TOKEN'))
-
-        yield client
-
-    except Exception as e:
-        print(f"Error with Telethon client: {e}")
-        raise
-    finally:
-        # Всегда закрываем соединение
-        if client and client.is_connected():
-            await client.disconnect()
 

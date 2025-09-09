@@ -131,6 +131,7 @@ def team_registration_keyboard(team_name: str) -> InlineKeyboardMarkup:
 
 def skip_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
+    builder.button(text='Наши города', url='https://yandex.md/maps/?ll=-82.169876%2C10.218119&mode=usermaps&source=constructorLink&um=constructor%3A99acd70064f59b2183a2ccf5ee561cae949c0840af639a7f89a07b70e39f3e70&z=2')
     builder.button(text='Пропустить', callback_data='team:skip_city')
     builder.adjust(1)
     return builder.as_markup()
@@ -139,5 +140,48 @@ def skip_keyboard() -> InlineKeyboardMarkup:
 def notify_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text='🔕 Не напоминать', callback_data='notify:mute')
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def new_chat_welcome_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура для приветствия в новом чате"""
+    builder = InlineKeyboardBuilder()
+    builder.button(text='ℹ️ Помощь', callback_data='help')
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def existing_chat_welcome_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура для приветствия в существующем чате"""
+    builder = InlineKeyboardBuilder()
+    builder.button(text='🎮 Начать игру', callback_data='start_game')
+    builder.button(text='ℹ️ Помощь', callback_data='help')
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def city_selection_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура для выбора города"""
+    builder = InlineKeyboardBuilder()
+    builder.button(text='🌍 Наши города', url='https://yandex.md/maps/?ll=-82.169876%2C10.218119&mode=usermaps&source=constructorLink&um=constructor%3A99acd70064f59b2183a2ccf5ee561cae949c0840af639a7f89a07b70e39f3e70&z=2')
+    builder.button(text='Пропустить', callback_data='team:skip_city')
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def game_finished_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура для окончания игры"""
+    builder = InlineKeyboardBuilder()
+    builder.button(text='🎯 Играть оффлайн', url='https://quizplease.ru/schedule?utm_source=tgbot&utm_medium=tgmessage&utm_campaign=tgmessages')
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def no_planned_games_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура когда нет запланированных игр"""
+    builder = InlineKeyboardBuilder()
+    builder.button(text='🔔 Напомнить', callback_data='notify:enable')
+    builder.button(text='🎯 Соревнование', callback_data='game:dm')
     builder.adjust(1)
     return builder.as_markup()

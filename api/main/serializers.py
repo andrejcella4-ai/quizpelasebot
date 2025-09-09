@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Quiz, Question, Team, TelegramPlayer, PlanTeamQuiz, BotText, Config
+from .models import Quiz, Question, Team, TelegramPlayer, PlanTeamQuiz, BotText, Config, Chat, PlayerInChat
 
 
 class AuthPlayerSerializer(serializers.Serializer):
@@ -122,3 +122,16 @@ class ConfigSerializer(serializers.ModelSerializer):
     class Meta:
         model = Config
         fields = ('id', 'name', 'value')
+
+
+class ChatLeaderboardEntrySerializer(serializers.Serializer):
+    username = serializers.CharField()
+    points = serializers.IntegerField()
+    first_name = serializers.CharField()
+    last_name = serializers.CharField(required=False)
+
+
+class ChatSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Chat
+        fields = ('id', 'chat_id', 'chat_username', 'created_at', 'is_active')

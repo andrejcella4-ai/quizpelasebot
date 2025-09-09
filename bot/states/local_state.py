@@ -54,6 +54,10 @@ class GameState:
     # защита от повторных лайков/дизлайков на текущий вопрос
     question_likes: set[str] = field(default_factory=set)  # telegram_id пользователей, поставивших лайк
     question_dislikes: set[str] = field(default_factory=set)  # telegram_id пользователей, поставивших дизлайк
+    # Новые поля для очистки сообщений
+    cleanup_message_ids: list[int] = field(default_factory=list)
+    registration_message_ids: list[int] = field(default_factory=list)  # ID сообщений регистрации для удаления
+    user_answer_message_ids: list[int] = field(default_factory=list)  # ID сообщений с ответами пользователей
 
 
 def get_game_state(game_key: str) -> GameState:

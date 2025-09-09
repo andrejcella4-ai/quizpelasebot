@@ -17,9 +17,11 @@ from main.views import (
     PlayerUpdateView,
     PlayerLeaderboardView,
     TeamLeaderboardView,
+    ChatLeaderboardView,
     PlayerNotifyListView,
     PlayerTotalPointsView,
     PlayersTotalPointsView,
+    PlayersChatPointsView,
     BotTextsDictView,
     BotTextsBulkUpsertView,
     RotatedQuestionListView,
@@ -27,6 +29,7 @@ from main.views import (
     BulkQuestionImportView,
     QuestionLikeView,
     QuestionDislikeView,
+    ChatRegisterView,
 )
 
 
@@ -50,13 +53,16 @@ urlpatterns = [
     path('player/leaderboard/', PlayerLeaderboardView.as_view(), name='player-leaderboard'),
     path('player/total-points/<str:username>/', PlayerTotalPointsView.as_view(), name='player-total-points'),
     path('player/list/total-points/', PlayersTotalPointsView.as_view(), name='players-total-points'),
+    path('player/list/chat-points/', PlayersChatPointsView.as_view(), name='players-chat-points'),
     path('team/leaderboard/<str:chat_username>/', TeamLeaderboardView.as_view(), name='team-leaderboard'),
+    path('chat/<str:chat_id>/leaderboard/', ChatLeaderboardView.as_view(), name='chat-leaderboard'),
     path('player/notify-list/', PlayerNotifyListView.as_view(), name='player-notify-list'),
     path('bot-texts/', BotTextsDictView.as_view(), name='bot-texts-dict'),
     path('bot-texts/bulk-upsert/', BotTextsBulkUpsertView.as_view(), name='bot-texts-bulk-upsert'),
     path('bulk-import-questions/', BulkQuestionImportView.as_view(), name='bulk-import-questions'),
     path('question/<int:question_id>/like/', QuestionLikeView.as_view(), name='question-like'),
     path('question/<int:question_id>/dislike/', QuestionDislikeView.as_view(), name='question-dislike'),
+    path('chat/register/', ChatRegisterView.as_view(), name='chat-register'),
 
     path('', include(router.urls)),
 ]
