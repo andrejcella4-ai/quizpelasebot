@@ -5,7 +5,7 @@ from aiogram import Router, types
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 
-from states.fsm import SoloGameStates
+from states.fsm import SoloGameStates, TeamGameStates
 from api_client import (
     auth_player,
     get_quiz_list,
@@ -20,6 +20,7 @@ from api_client import (
     chat_leaderboard,
     team_leaderboard,
     get_team,
+    chat_register,
 )
 from keyboards import main_menu_keyboard, confirm_start_keyboard, create_variant_keyboard, private_menu_keyboard, question_result_keyboard, new_chat_welcome_keyboard, existing_chat_welcome_keyboard
 from static.answer_texts import TextStatics
@@ -32,21 +33,23 @@ router = Router()
 
 # --- Обработка добавления бота в чат ---
 @router.my_chat_member()
-async def on_my_chat_member(update: types.ChatMemberUpdated):
+async def on_my_chat_member(update: types.ChatMemberUpdated, state: FSMContext):
     try:
         if update.new_chat_member and update.new_chat_member.status in {"administrator", "member"}:
             system_token = os.getenv('BOT_SYSTEM_TOKEN') or os.getenv('BOT_TOKEN', '')
             chat_id = update.chat.id
             chat_username = update.chat.username
             try:
-                from api_client import chat_register
                 res = await chat_register(system_token, chat_id, chat_username)
                 is_created = bool(res.get('created')) if isinstance(res, dict) else False
             except Exception:
                 is_created = False
             # Разные тексты: новый чат vs существующий
             if is_created:
-                await update.bot.send_message(chat_id, TextStatics.get_start_message_group_new(), reply_markup=new_chat_welcome_keyboard())
+                create_team_message = await update.bot.send_message(chat_id, TextStatics.get_start_message_group_new(update.from_user.username or update.from_user.first_name), reply_markup=existing_chat_welcome_keyboard())
+                await state.set_state(TeamGameStates.TEAM_CREATE_NAME)
+                await state.update_data(create_team_message_id=create_team_message.message_id)
+                await state.update_data(send_from_user_id=update.from_user.id)
             else:
                 await update.bot.send_message(chat_id, TextStatics.get_start_message_group(), reply_markup=existing_chat_welcome_keyboard())
     except Exception:
@@ -552,11 +555,7 @@ async def next_question(callback: types.CallbackQuery, state: FSMContext):
 @router.callback_query(lambda c: c.data == 'back')
 async def go_back(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
-    # Возвращаемся к меню выбора режима
-    if callback.message.chat.type == 'private':
-        await callback.message.edit_text(TextStatics.get_start_menu(), reply_markup=private_menu_keyboard())
-    else:
-        await callback.message.edit_text(TextStatics.get_start_menu(), reply_markup=main_menu_keyboard())
+    await callback.message.answer(TextStatics.canceled())
 
 
 @router.callback_query(lambda c: c.data in ('like', 'dislike'))
