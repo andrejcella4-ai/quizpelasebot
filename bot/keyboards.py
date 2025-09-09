@@ -155,7 +155,7 @@ def new_chat_welcome_keyboard() -> InlineKeyboardMarkup:
 def existing_chat_welcome_keyboard() -> InlineKeyboardMarkup:
     """Клавиатура для приветствия в существующем чате"""
     builder = InlineKeyboardBuilder()
-    builder.button(text='🎮 Начать игру', callback_data='start_game')
+    builder.button(text='🎮 Начать игру', callback_data='quizplease')
     builder.button(text='ℹ️ Помощь', callback_data='help')
     builder.adjust(1)
     return builder.as_markup()
@@ -164,7 +164,7 @@ def existing_chat_welcome_keyboard() -> InlineKeyboardMarkup:
 def city_selection_keyboard() -> InlineKeyboardMarkup:
     """Клавиатура для выбора города"""
     builder = InlineKeyboardBuilder()
-    builder.button(text='🌍 Наши города', url='https://yandex.md/maps/?ll=-82.169876%2C10.218119&mode=usermaps&source=constructorLink&um=constructor%3A99acd70064f59b2183a2ccf5ee561cae949c0840af639a7f89a07b70e39f3e70&z=2')
+    builder.button(text='Наши города', url='https://yandex.md/maps/?ll=-82.169876%2C10.218119&mode=usermaps&source=constructorLink&um=constructor%3A99acd70064f59b2183a2ccf5ee561cae949c0840af639a7f89a07b70e39f3e70&z=2')
     builder.button(text='Пропустить', callback_data='team:skip_city')
     builder.adjust(1)
     return builder.as_markup()

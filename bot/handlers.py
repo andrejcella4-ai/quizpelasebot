@@ -312,7 +312,7 @@ async def quizplease_command(message: types.Message, state: FSMContext):
     if message.chat.type == 'private':
         await message.answer(TextStatics.get_start_menu(), reply_markup=private_menu_keyboard())
     else:
-        await message.answer(TextStatics.solo_quiz_start_message(), reply_markup=main_menu_keyboard())
+        await message.answer(TextStatics.select_mode_message(), reply_markup=main_menu_keyboard())
 
 
 @router.callback_query(lambda c: c.data == 'game:solo')
@@ -656,10 +656,16 @@ async def help_callback(callback: types.CallbackQuery):
     await callback.message.answer(TextStatics.get_help_message())
 
 
+@router.callback_query(lambda c: c.data == 'quizplease')
+async def quizplease_callback(callback: types.CallbackQuery):
+    await callback.answer()
+    await callback.message.answer(TextStatics.get_start_menu(), reply_markup=main_menu_keyboard())
+
+
 @router.callback_query(lambda c: c.data == 'start_game')
 async def start_game_callback(callback: types.CallbackQuery):
     await callback.answer()
-    await callback.message.answer(TextStatics.get_start_menu(), reply_markup=main_menu_keyboard())
+    await callback.message.answer(TextStatics.select_mode_message(), reply_markup=main_menu_keyboard())
 
 
 @router.callback_query(lambda c: c.data == 'notify:enable')
