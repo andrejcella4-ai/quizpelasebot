@@ -19,7 +19,7 @@ class City(models.Model):
 
 class Chat(models.Model):
     chat_id = models.BigIntegerField(unique=True, verbose_name='Chat ID')
-    chat_username = models.CharField(max_length=255, blank=True, null=True, verbose_name='Chat username')
+    chat_username = models.CharField(max_length=255, unique=True, verbose_name='Chat username')
     created_at = models.DateTimeField(auto_now_add=True, verbose_name='Дата создания')
     is_active = models.BooleanField(default=True, verbose_name='Активен')
 

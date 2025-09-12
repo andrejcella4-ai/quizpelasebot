@@ -38,7 +38,7 @@ async def on_my_chat_member(update: types.ChatMemberUpdated, state: FSMContext):
         if update.new_chat_member and update.new_chat_member.status in {"administrator", "member"}:
             system_token = os.getenv('BOT_SYSTEM_TOKEN') or os.getenv('BOT_TOKEN', '')
             chat_id = update.chat.id
-            chat_username = update.chat.username
+            chat_username = update.chat.username or str(update.chat.id)
             try:
                 res = await chat_register(system_token, chat_id, chat_username)
                 is_created = bool(res.get('created')) if isinstance(res, dict) else False
@@ -255,7 +255,7 @@ async def stats_command(message: types.Message):
     team_position_text = ''
     
     # Проверяем, есть ли у чата username для команд
-    if message.chat.username:
+    if message.chat.username or message.chat.id:
         # Авторизуемся
         token = await auth_player(
             telegram_id=message.from_user.id,
@@ -266,7 +266,7 @@ async def stats_command(message: types.Message):
         )
         
         # Получаем лидерборд команд
-        team_data = await team_leaderboard(token, message.chat.username)
+        team_data = await team_leaderboard(token, message.chat.username or str(message.chat.id))
         team_entries = team_data.get('entries', [])
         current_team = team_data.get('current', {})
         
