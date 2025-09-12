@@ -3,6 +3,7 @@ from django.contrib.admin import SimpleListFilter
 from import_export import resources, fields
 from import_export.admin import ImportExportModelAdmin
 from import_export.widgets import ManyToManyWidget
+from simple_history.admin import SimpleHistoryAdmin
 
 from .models import (
     TelegramPlayer,
@@ -115,11 +116,12 @@ class HasQuizFilter(SimpleListFilter):
 
 
 @admin.register(Question)
-class QuestionAdmin(ImportExportModelAdmin):
+class QuestionAdmin(SimpleHistoryAdmin, ImportExportModelAdmin):
     resource_classes = [QuestionResource]  # Изменено с resource_class на resource_classes
     list_display = ('id', 'text', 'question_type', 'comment', 'difficulty', 'game_use_type', 'image', 'get_quiz_names')
     list_filter = ('question_type', 'difficulty', 'game_use_type', HasQuizFilter)
     search_fields = ('text',)
+    history_list_display = ['text', 'question_type', 'game_use_type', 'difficulty']
 
     # Добавляем массовые действия
     actions = [make_solo_questions, make_dm_questions, clear_game_type]
@@ -138,11 +140,12 @@ class QuestionAdmin(ImportExportModelAdmin):
 
 
 @admin.register(QuestionAnswer)
-class QuestionAnswerAdmin(ImportExportModelAdmin):
+class QuestionAnswerAdmin(SimpleHistoryAdmin, ImportExportModelAdmin):
     resource_classes = [QuestionAnswerResource]
     list_display = ('id', 'text', 'question', 'is_right')
     list_filter = ('is_right',)
     search_fields = ('text',)
+    history_list_display = ['text', 'question', 'is_right']
 
 
 @admin.register(Quiz)
@@ -178,9 +181,10 @@ class PlanTeamQuizAdmin(admin.ModelAdmin):
 
 
 @admin.register(BotText)
-class BotTextAdmin(admin.ModelAdmin):
+class BotTextAdmin(SimpleHistoryAdmin):
     list_display = ('id', 'text_name', 'label', 'description', 'unformatted_text')
     search_fields = ('text_name',)
+    history_list_display = ['text_name', 'label', 'unformatted_text']
 
 
 @admin.register(City)
@@ -190,9 +194,10 @@ class CityAdmin(admin.ModelAdmin):
 
 
 @admin.register(Config)
-class ConfigAdmin(admin.ModelAdmin):
+class ConfigAdmin(SimpleHistoryAdmin):
     list_display = ('id', 'name', 'value')
     search_fields = ('name',)
+    history_list_display = ['name', 'value']
 
 
 @admin.register(Chat)

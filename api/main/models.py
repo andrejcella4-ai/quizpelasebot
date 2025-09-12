@@ -1,5 +1,7 @@
 from django.db import models
 
+from simple_history.models import HistoricalRecords
+
 import binascii
 import os
 
@@ -134,6 +136,8 @@ class Question(models.Model):
         null=True,
     )
 
+    history = HistoricalRecords()
+
     def __str__(self):
         return self.text
 
@@ -165,6 +169,8 @@ class QuestionAnswer(models.Model):
     text = models.TextField(verbose_name='Текст ответа')
     is_right = models.BooleanField(default=False, verbose_name='Правильный ответ')
     question = models.ForeignKey('Question', on_delete=models.CASCADE, verbose_name='Вопрос')
+
+    history = HistoricalRecords()
 
     def __str__(self):
         return self.text
@@ -254,6 +260,8 @@ class BotText(models.Model):
     description = models.TextField(verbose_name='Описание текста', null=True, blank=True)
     unformatted_text = models.TextField(verbose_name='Текст')
 
+    history = HistoricalRecords()
+
     def __str__(self):
         return f"bot text: {self.text_name}"
 
@@ -265,6 +273,8 @@ class BotText(models.Model):
 class Config(models.Model):
     name = models.CharField(max_length=255, verbose_name='Название', unique=True)
     value = models.CharField(max_length=255, verbose_name='Значение')
+
+    history = HistoricalRecords()
 
     class Meta:
         verbose_name = 'Настройка'
