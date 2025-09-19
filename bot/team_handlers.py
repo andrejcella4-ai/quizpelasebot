@@ -51,6 +51,14 @@ async def stop_game_team(message: types.Message, state: FSMContext):
     """Остановить текущую викторину: SOLO (private) очищаем FSM, GROUP (dm/team) удаляем из _games_state."""
     await stop_quiz(message, state)
 
+
+@router.callback_query(lambda c: c.data == "cancel:team")
+async def cancel_team_game(callback: types.CallbackQuery, state: FSMContext):
+    await callback.answer("Игра отменена")
+    await stop_quiz(callback.message, state)
+    await callback.message.bot.delete_message(callback.message.chat.id, callback.message.message_id)
+
+
 # --------------------------------------------------------
 # /game command – show current status or registration
 # --------------------------------------------------------
