@@ -206,7 +206,7 @@ class TeamViewSet(viewsets.ModelViewSet):
         if city_name:
             city_obj = City.objects.filter(name__iexact=city_name.strip()).first()
             if city_obj is None:
-                return Response({'detail': 'City not found'}, status=status.HTTP_404_NOT_FOUND)
+                city_obj = City.objects.create(name=city_name.strip())
             data['city'] = city_obj.id
         
         serializer = self.get_serializer(data=data)

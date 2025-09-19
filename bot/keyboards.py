@@ -4,11 +4,21 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 def create_variant_keyboard(options: list) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-
+    
+    # Максимальная длина для кнопки в 2 колонки (примерно 20 символов)
+    MAX_LENGTH_FOR_TWO_COLUMNS = 20
+    
     for idx, opt in enumerate(options):
         builder.button(text=opt, callback_data=f'answer:{idx}')
-
-    builder.adjust(2)
+    
+    # Если есть кнопки с длинным текстом, размещаем их в одну колонку
+    has_long_text = any(len(opt) > MAX_LENGTH_FOR_TWO_COLUMNS for opt in options)
+    
+    if has_long_text:
+        builder.adjust(1)  # Все кнопки в одну колонку
+    else:
+        builder.adjust(2)  # По 2 кнопки в ряд
+    
     return builder.as_markup()
 
 
@@ -81,6 +91,15 @@ def team_plans_keyboard(plans: list[dict]) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
+def team_start_game_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура для начала командной игры"""
+    builder = InlineKeyboardBuilder()
+    builder.button(text='🚀 Начать игру', callback_data='team:start_game')
+    builder.button(text='❌ Отменить', callback_data='cancel:team')
+    builder.adjust(1)
+    return builder.as_markup()
+
+
 def confirm_start_keyboard() -> InlineKeyboardMarkup:
     """Клавиатура подтверждения начала игры"""
     builder = InlineKeyboardBuilder()
@@ -131,7 +150,6 @@ def team_registration_keyboard(team_name: str) -> InlineKeyboardMarkup:
 
 def skip_keyboard() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    builder.button(text='Наши города', url='https://yandex.md/maps/?ll=-82.169876%2C10.218119&mode=usermaps&source=constructorLink&um=constructor%3A99acd70064f59b2183a2ccf5ee561cae949c0840af639a7f89a07b70e39f3e70&z=2')
     builder.button(text='Пропустить', callback_data='team:skip_city')
     builder.adjust(1)
     return builder.as_markup()
@@ -164,7 +182,6 @@ def existing_chat_welcome_keyboard() -> InlineKeyboardMarkup:
 def city_selection_keyboard() -> InlineKeyboardMarkup:
     """Клавиатура для выбора города"""
     builder = InlineKeyboardBuilder()
-    builder.button(text='Наши города', url='https://yandex.md/maps/?ll=-82.169876%2C10.218119&mode=usermaps&source=constructorLink&um=constructor%3A99acd70064f59b2183a2ccf5ee561cae949c0840af639a7f89a07b70e39f3e70&z=2')
     builder.button(text='Пропустить', callback_data='team:skip_city')
     builder.adjust(1)
     return builder.as_markup()

@@ -16,6 +16,7 @@ from keyboards import (
     no_planned_games_keyboard,
     team_plans_keyboard,
     skip_keyboard,
+    team_start_game_keyboard,
 )
 
 from helpers import (
@@ -67,6 +68,72 @@ async def show_game_status(message: types.Message):
     await message.answer(text)
 
 
+@router.message(Command("team"))
+async def team_command(message: types.Message, state: FSMContext):
+    """Команда для ввода названия команды"""
+    if message.chat.type == "private":
+        await message.answer("Команды /team и /city работают только в групповых чатах.")
+        return
+    
+    # Получаем название команды из команды
+    team_name = message.text.replace("/team", "").strip()
+    if not team_name:
+        await message.answer("Использование: /team [название команды]")
+        return
+    
+    # Сохраняем название команды в состоянии
+    await state.update_data(team_name=team_name, send_from_user_id=message.from_user.id)
+    
+    # Проверяем, есть ли уже сохраненный город
+    data = await state.get_data()
+    city = data.get('city')
+    
+    if city and data.get('send_from_user_id') == message.from_user.id:
+        # Если город уже есть, создаем команду
+        created = await create_team_helper(team_name, message, message.from_user, city)
+        if created:
+            await message.answer(TextStatics.team_city_command_enter(city, team_name), reply_markup=main_menu_keyboard())
+            await state.clear()
+        else:
+            await message.answer(TextStatics.team_create_error())
+    else:
+        # Если города нет, просто сохраняем название команды
+        await message.answer(TextStatics.team_name_command_enter(team_name))
+
+
+@router.message(Command("city"))
+async def city_command(message: types.Message, state: FSMContext):
+    """Команда для ввода города команды"""
+    if message.chat.type == "private":
+        await message.answer("Команды /team и /city работают только в групповых чатах.")
+        return
+    
+    # Получаем город из команды
+    city = message.text.replace("/city", "").strip()
+    if not city:
+        await message.answer("Использование: /city [название города]")
+        return
+    
+    # Сохраняем город в состоянии
+    await state.update_data(city=city, send_from_user_id=message.from_user.id)
+    
+    # Проверяем, есть ли уже сохраненное название команды
+    data = await state.get_data()
+    team_name = data.get('team_name')
+    
+    if team_name and data.get('send_from_user_id') == message.from_user.id:
+        # Если название команды уже есть, создаем команду
+        created = await create_team_helper(team_name, message, message.from_user, city)
+        if created:
+            await message.answer(TextStatics.team_city_command_enter(city, team_name), reply_markup=main_menu_keyboard())
+            await state.clear()
+        else:
+            await message.answer(TextStatics.team_create_error())
+    else:
+        # Если названия команды нет, просто сохраняем город
+        await message.answer(TextStatics.team_city_saved_message(city))
+
+
 @router.message(TeamGameStates.TEAM_CREATE_NAME)
 async def create_team_name(message: types.Message, state: FSMContext):
     create_team_message_id = (await state.get_data()).get("create_team_message_id")
@@ -107,14 +174,15 @@ async def choose_city(message: types.Message, state: FSMContext):
     ):
         return
 
+    # Принимаем любой город без проверки
     created = await create_team_helper(team_name, message, message.from_user, city)
     if created:
         await message.bot.delete_message(message.chat.id, choose_city_message_id)
         await message.answer(TextStatics.team_created_success(team_name), reply_markup=main_menu_keyboard())
         await state.clear()
     else:
-        # Ошибка может быть из-за города. Предложим повторить или пропустить
-        await message.answer(TextStatics.city_not_found(message.from_user.username or str(message.from_user.first_name)), reply_markup=skip_keyboard())
+        # Если команда не создалась, показываем ошибку
+        await message.answer(TextStatics.team_create_error())
 
 
 @router.callback_query(lambda c: c.data == 'team:skip_city')
@@ -324,7 +392,7 @@ async def start_registration(callback: types.CallbackQuery, state: FSMContext):
             game_state.team_id = None
 
         # Показываем сообщение о выборе плана/темы
-        await callback.message.answer("📆 Выберите запланированную викторину:", reply_markup=team_plans_keyboard(game_state.available_quizzes))
+        await callback.message.answer(TextStatics.team_select_quiz_message(), reply_markup=team_plans_keyboard(game_state.available_quizzes))
 
         # Таймер подготовки здесь не запускаем, запустим после выбора плана
         await state.set_state(SoloGameStates.WAITING_CONFIRM)
@@ -349,11 +417,11 @@ async def start_team_game_early(callback: types.CallbackQuery, state: FSMContext
     if game_state.timer_task:
         game_state.timer_task.cancel()
         game_state.timer_task = None
-
+    
     if not game_state.quiz_id:
         # показать выбор планов
         await callback.message.edit_text(
-            "📆 Выберите запланированную викторину:",
+            TextStatics.team_select_quiz_message(),
             reply_markup=team_plans_keyboard(game_state.available_quizzes),
         )
         return
@@ -436,10 +504,10 @@ async def choose_team_plan(callback: types.CallbackQuery, state: FSMContext):
     configs = await get_configs(os.getenv('BOT_TOKEN'))
     registration_duration = int([config['value'] for config in configs if config['name'] == 'seconds_before_team_game_start'][0])
 
-    # Показать сообщение подготовки с таймером
+    # Показать сообщение подготовки с кнопкой "Начать игру"
     prep_text = TextStatics.team_prep_message(game_state.quiz_name or "Командная викторина", list(game_state.captains.values())[0], registration_duration)
     try:
-        await callback.message.edit_text(prep_text)
+        await callback.message.edit_text(prep_text, reply_markup=team_start_game_keyboard())
         game_state.message_id = callback.message.message_id
         game_state.registration_message_ids.append(callback.message.message_id)
     except TelegramBadRequest as e:
@@ -447,39 +515,54 @@ async def choose_team_plan(callback: types.CallbackQuery, state: FSMContext):
             game_state.message_id = callback.message.message_id
             game_state.registration_message_ids.append(callback.message.message_id)
         else:
-            sent = await callback.message.answer(prep_text)
+            sent = await callback.message.answer(prep_text, reply_markup=team_start_game_keyboard())
             game_state.message_id = sent.message_id
             game_state.registration_message_ids.append(sent.message_id)
+
+
+# -------- обработка кнопки "Начать игру" для командного режима --------
+
+@router.callback_query(lambda c: c.data == "team:start_game")
+async def start_team_game(callback: types.CallbackQuery):
+    """Обработчик кнопки 'Начать игру' для командного режима"""
+    await callback.answer()
+    game_key = _get_game_key_for_chat(callback.message.chat.id)
+    if not game_key:
+        return
     
-    # По истечении подготовки загрузим вопросы и начнём
-    async def _delayed_start_after_choose():
+    game_state = get_game_state(game_key)
+    if game_state.mode != "team" or game_state.status != "reg":
+        return
+    
+    try:
+        token = await auth_player(
+            telegram_id=callback.from_user.id,
+            first_name=callback.from_user.first_name,
+            last_name=callback.from_user.last_name or "",
+            username=callback.from_user.username,
+            phone=None,
+            lang_code=callback.from_user.language_code,
+        )
+        quiz_info = await get_quiz_info("team", quiz_id=game_state.quiz_id)
+        questions_data = await get_questions(token, quiz_info["id"])
+        game_state.questions = questions_data["questions"]
+        game_state.total_questions = len(game_state.questions)
+        game_state.status = "playing"
+        
         try:
-            token = await auth_player(
-                telegram_id=callback.from_user.id,
-                first_name=callback.from_user.first_name,
-                last_name=callback.from_user.last_name or "",
-                username=callback.from_user.username,
-                phone=None,
-                lang_code=callback.from_user.language_code,
+            await callback.message.bot.edit_message_text(
+                chat_id=callback.message.chat.id,
+                message_id=game_state.message_id,
+                text=TextStatics.team_prep_message_started(game_state.quiz_name or "Командная викторина", list(game_state.captains.values())[0])
             )
-            quiz_info = await get_quiz_info("team", quiz_id=game_state.quiz_id)
-            questions_data = await get_questions(token, quiz_info["id"])
-            game_state.questions = questions_data["questions"]
-            game_state.total_questions = len(game_state.questions)
-            game_state.status = "playing"
-            try:
-                await callback.message.bot.edit_message_text(
-                    chat_id=callback.message.chat.id,
-                    message_id=game_state.message_id,
-                    text=TextStatics.team_prep_message_started(game_state.quiz_name or "Командная викторина", list(game_state.captains.values())[0])
-                )
-            except TelegramBadRequest as e:
-                if "message is not modified" not in str(e):
-                    await callback.message.answer(TextStatics.team_prep_message_started(game_state.quiz_name or "Командная викторина", list(game_state.captains.values())[0]))
-            await start_game_questions(callback, game_state)
-        except Exception:
-            pass
-    game_state.timer_task = await schedule_registration_end(datetime.utcnow() + timedelta(seconds=registration_duration), _delayed_start_after_choose)
+        except TelegramBadRequest as e:
+            if "message is not modified" not in str(e):
+                await callback.message.answer(TextStatics.team_prep_message_started(game_state.quiz_name or "Командная викторина", list(game_state.captains.values())[0]))
+        
+        await start_game_questions(callback, game_state)
+    except Exception as e:
+        print(f"Ошибка при запуске командной игры: {e}")
+        await callback.message.answer("Ошибка при запуске игры")
 
 
 # -------- регистрация участников / команд --------
@@ -663,7 +746,7 @@ async def answer_text_message(message: types.Message):
         # current_question_msg_id должен быть уже установлен send_next_question()
         if game_state.current_question_msg_id is None or message.reply_to_message.message_id != game_state.current_question_msg_id:
             return
-
+    
     # Проверяем, что это текстовый вопрос
     if game_state.current_q_idx >= len(game_state.questions):
         return
@@ -725,10 +808,10 @@ async def answer_text_message(message: types.Message):
     game_state.user_answer_message_ids.append(message.message_id)
     
     await process_answer(
-        message.bot,
-        message.chat.id,
-        game_state,
-        username,
+        message.bot, 
+        message.chat.id, 
+        game_state, 
+        username, 
         user_answer,
     )
 

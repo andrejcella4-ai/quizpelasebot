@@ -629,3 +629,19 @@ class TextStatics:
             players_count=players_count,
             teams_section=teams_section
         )
+
+    @staticmethod
+    def team_name_command_enter(team_name: str) -> str:
+        return _t('team_name_command_enter', '✅ Название команды "{team_name}" сохранено!\nТеперь введите город командой /city [название города]', team_name=team_name)
+
+    @staticmethod
+    def team_city_command_enter(city: str, team_name: str) -> str:
+        return _t('team_city_command_enter', '✅ Город "{city}" сохранен!\nКоманда "{team_name}" создана успешно!', city=city, team_name=team_name)
+
+    @staticmethod
+    def team_select_quiz_message() -> str:
+        return _t('team_select_quiz_message', '📆 Выберите запланированную викторину:')
+
+    @staticmethod
+    def team_city_saved_message(city: str) -> str:
+        return _t('team_city_saved_message', '✅ Город "{city}" сохранен!\nТеперь введите название команды командой /team [название команды]', city=city)
